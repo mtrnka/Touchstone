@@ -1,4 +1,17 @@
+#' Read Search Compare Output from Protein Prospector
+#'
+#' @param inputFile A tab delimited search compare file generated using tstoneMS2.json param file
+#' @param minPepLen minimum length of each peptide in amino acids.
+#' @param minPepScore minimum prospector score of each peptide.
+#' @param minScoreDiff minimum Score Difference for the CSM.
+#' @param minIons mimimum number of product ions matched for each peptide.
+#'
+#' @return A data frame
+#' @export
+#'
+#' @examples
 readProspectorXLOutput <- function(inputFile, minPepLen = 3, minPepScore = 0, minScoreDiff = 0, minIons = 3){
+
   datTab <- read_tsv(inputFile, guess_max = 10000)
   header <- names(datTab) %>%
     str_replace("_[[0-9]]$", "") %>%
@@ -67,6 +80,14 @@ readProspectorXLOutput <- function(inputFile, minPepLen = 3, minPepScore = 0, mi
   return(datTab)
 }
 
+#' determine whether a CSM is a decoy or target
+#'
+#' @param datTab parsed CLMS search results
+#'
+#' @return
+#' @export
+#'
+#' @examples
 calculateDecoys <- function(datTab) {
   datTab$Decoy <- "Target"
   decoyReg <- "(^r[[:digit:]]_|^dec|^DECOY)"
@@ -83,6 +104,14 @@ calculateDecoys <- function(datTab) {
   return(datTab)
 }
 
+#' determine residue, peptide,and protein pairs
+#'
+#' @param datTab
+#'
+#' @return
+#' @export
+#'
+#' @examples
 calculatePairs <- function(datTab){
   datTab <- datTab %>%
     mutate(Acc.1 = as.character(Acc.1),
@@ -139,6 +168,14 @@ calculatePairs <- function(datTab){
   return(datTab)
 }
 
+#' count number of CSMs per URP and number of URPs per PP
+#'
+#' @param datTab
+#'
+#' @return
+#' @export
+#'
+#' @examples
 addXlinkCount <- function(datTab) {
   datTab <- datTab %>%
     add_count(xlinkedResPair, name="numCSM")
@@ -152,6 +189,14 @@ addXlinkCount <- function(datTab) {
   datTab <- left_join(select(datTab, -any_of("numURP")), uniqueProtCount, by="xlinkedProtPair")
 }
 
+#' is the crosslink interprotein (hetromeric) or intraprotein (homomeric)
+#'
+#' @param datTab
+#'
+#' @return
+#' @export
+#'
+#' @examples
 assignXLinkClass <- function(datTab) {
   intraProteinLinks <- datTab$Protein.1 == datTab$Protein.2
   interProteinLinks <- datTab$Protein.1 != datTab$Protein.2
@@ -174,6 +219,14 @@ assignXLinkClass <- function(datTab) {
   return(datTab)
 }
 
+#' If MS-Product reporting of %TIC matched is present use that.  Otherwise approximate with number of matched ions.
+#'
+#' @param datTab
+#'
+#' @return
+#' @export
+#'
+#' @examples
 calculatePercentMatched <- function(datTab) {
   if ("Match.Int" %in% names(datTab)) {
     datTab$percMatched <- datTab$Match.Int
@@ -184,12 +237,29 @@ calculatePercentMatched <- function(datTab) {
   return(datTab)
 }
 
+#' calculate length of each peptide in amino acid residues.
+#'
+#' @param datTab
+#'
+#' @return
+#' @export
+#'
+#' @examples
 calculatePeptideLengths <- function(datTab) {
   datTab$Len.Pep.1 <- nchar(datTab$DB.Peptide.1)
   datTab$Len.Pep.2 <- nchar(datTab$DB.Peptide.2)
   return(datTab)
 }
 
+#' are diagnostic MH*/# ions from cleavable crosslinking reagents detected?
+#'
+#' @param msms.ions columns containing list of detected ions, must be present in Search Compare output.
+#' @param msms.int  columns with corresponding intensity vaues fro detected ions.
+#'
+#' @return
+#' @export
+#'
+#' @examples
 getDiagnosticMatches <- function(msms.ions, msms.int) {
   ions <- unlist(str_split(msms.ions, ";"))
   ints <- as.numeric(unlist(str_split(msms.int, ";")))
@@ -208,6 +278,15 @@ getDiagnosticMatches <- function(msms.ions, msms.int) {
   diagnostics <- list(ion_a, int_a, ion_s, int_s)
 }
 
+#' determined whether diagnostic ion pair from cleavable crosslinker was deteceted
+#'
+#' @param datTab
+#' @param int.thresh minimum intensity for diagnostic ion.
+#'
+#' @return
+#' @export
+#'
+#' @examples
 calculateDiagnosticPairs <- function(datTab, int.thresh = 0.05) {
   datTab <- datTab %>%
     mutate(diagnostics.1 = map2(MSMS.Ions.1, MSMS.Intensities.1, getDiagnosticMatches),
@@ -227,6 +306,16 @@ calculateDiagnosticPairs <- function(datTab, int.thresh = 0.05) {
     )
 }
 
+#' function for sequential scan data, e.g. sequential MS2-CID and MS2-ETD determined triggered on the same precursor ion.
+#'
+#' @param datTab.etd parsed search table that is not expected to contain diagnostic ions (does not necessarily need to be ETD)
+#' @param datTab.cid parsed search table expected to contain diagnostic ions (typical MS2-CID)
+#' @param masterScanFile master scan file that charts the dependencies between different scans.
+#'
+#' @return
+#' @export
+#'
+#' @examples
 calculateCrossDiagnosticPair <- function(datTab.etd, datTab.cid, masterScanFile) {
   datTab.etd <- datTab.etd %>%
     mutate(Fraction = str_replace_all(Fraction, "_FTMSms2[[a-z]]+$", ""))
@@ -244,7 +333,16 @@ calculateCrossDiagnosticPair <- function(datTab.etd, datTab.cid, masterScanFile)
   return(datTab.etd)
 }
 
-getDiagnosticMatchesETD <- function(msms.ions, msms.int) {
+#' Analog of getDiagnostic Matches for non-cleavable crosslinkers. Looks for P, PL, PLK type ions.
+#'
+#' @param msms.ions
+#' @param msms.int
+#'
+#' @return
+#' @export
+#'
+#' @examples
+getDiagnosticMatchesNonCleavable <- function(msms.ions, msms.int) {
   ions <- unlist(str_split(msms.ions, ";"))
   ints <- as.numeric(unlist(str_split(msms.int, ";")))
   total.int <- sum(ints, na.rm = T)
@@ -256,16 +354,33 @@ getDiagnosticMatchesETD <- function(msms.ions, msms.int) {
   diagnostics <- list(ion_p, int_p)
 }
 
-calculateDiagnosticPairsETD <- function(datTab) {
+#' analog of calcualte diagnostic pairs for non-cleavable crosslinkers
+#'
+#' @param datTab
+#'
+#' @return
+#' @export
+#'
+#' @examples
+calculateDiagnosticPairsNonCleavable <- function(datTab) {
   datTab <- datTab %>%
-    mutate(diagnostics.1 = map2(MSMS.Ions.1, MSMS.Intensities.1, getDiagnosticMatchesETD),
-           diagnostics.2 = map2(MSMS.Ions.2, MSMS.Intensities.2, getDiagnosticMatchesETD),
+    mutate(diagnostics.1 = map2(MSMS.Ions.1, MSMS.Intensities.1, getDiagnosticMatchesNonCleavable),
+           diagnostics.2 = map2(MSMS.Ions.2, MSMS.Intensities.2, getDiagnosticMatchesNonCleavable),
            ppPair = map2_lgl(diagnostics.1, diagnostics.2, function(x, y) {
              if_else(x[[2]] > 0.01 & y[[2]] > 0.01, T, F)}),
            diagnosticPair = ppPair
     )
 }
 
+#' parses the list matched product ions and translate to peptide bond position.
+#'
+#' @param msms.ions list of product ion matches found in Search Compare output
+#' @param pep.len length of peptide
+#'
+#' @return
+#' @export
+#'
+#' @examples
 getProductIonMatches <- function(msms.ions, pep.len) {
   # will break if pep.len > 99
   ions <- unlist(str_split(msms.ions, ";"))
@@ -283,23 +398,60 @@ getProductIonMatches <- function(msms.ions, pep.len) {
   return(ion_indicies)
 }
 
+#' calculates number of distinct bonds cleavages observed as product ions.
+#'
+#' @param datTab
+#'
+#' @return
+#' @export
+#'
+#' @examples
 calculateProductIons <- function(datTab) {
   datTab <- datTab %>%
     mutate(numProdIons.1 = map2_int(MSMS.Ions.1, Len.Pep.1, function(x,y) length(getProductIonMatches(x,y))),
            numProdIons.2 = map2_int(MSMS.Ions.2, Len.Pep.2, function(x,y) length(getProductIonMatches(x,y))))
 }
 
+#' exclude CSMs below a given number of bond cleavages matched per peptide.
+#'
+#' @param datTab
+#' @param minProducts.1 number of bonds cleaved in peptide 1
+#' @param minProducts.2 number of bonds cleaved in peptide 2
+#'
+#' @return
+#' @export
+#'
+#' @examples
 productIonFilter <- function(datTab, minProducts.1 = 3, minProducts.2 = 3) {
   datTab <- datTab %>%
     filter(numProdIons.1 >= minProducts.1, numProdIons.2 >= minProducts.2)
 }
 
+#' prefilter CSMs by length of each peptide.
+#'
+#' @param datTab
+#' @param minLen
+#' @param maxLen
+#'
+#' @return
+#' @export
+#'
+#' @examples
 lengthFilter <- function(datTab, minLen, maxLen) {
   datTab <- datTab[datTab$Len.Pep.2 >= minLen & datTab$Len.Pep.1 >= minLen,]
   datTab <- datTab[datTab$Len.Pep.2 <= maxLen & datTab$Len.Pep.1 <= maxLen,]
   return(datTab)
 }
 
+#' prefilter CSMs by Prospector Score of each peptide
+#'
+#' @param datTab
+#' @param minScore
+#'
+#' @return
+#' @export
+#'
+#' @examples
 scoreFilter <- function(datTab, minScore=0) {
   datTab <- datTab[datTab$Sc.1 >= minScore & datTab$Sc.2 >= minScore,]
   return(datTab)
