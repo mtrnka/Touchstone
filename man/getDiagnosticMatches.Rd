@@ -2,15 +2,21 @@
 % Please edit documentation in R/processInput.R
 \name{getDiagnosticMatches}
 \alias{getDiagnosticMatches}
-\title{are diagnostic MH*/# ions from cleavable crosslinking reagents detected?}
+\title{Are diagnostic/reporter ions (MH*/#) from cleavable crosslinking reagents detected?}
 \usage{
 getDiagnosticMatches(msms.ions, msms.int)
 }
 \arguments{
-\item{msms.ions}{columns containing list of detected ions, must be present in Search Compare output.}
+\item{msms.ions}{Columns containing list of detected ions, must be present in Search Compare output.}
 
-\item{msms.int}{columns with corresponding intensity vaues fro detected ions.}
+\item{msms.int}{Columns with corresponding intensity values for detected ions.}
+}
+\value{
+A list of diagnostic ions and their intensities.
 }
 \description{
-are diagnostic MH*/# ions from cleavable crosslinking reagents detected?
+Are diagnostic/reporter ions (MH*/#) from cleavable crosslinking reagents detected?
+}
+\seealso{
+\code{\link[=calculateDiagnosticPairs]{calculateDiagnosticPairs()}}
 }

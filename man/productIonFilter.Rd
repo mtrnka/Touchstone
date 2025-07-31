@@ -2,15 +2,23 @@
 % Please edit documentation in R/processInput.R
 \name{productIonFilter}
 \alias{productIonFilter}
-\title{exclude CSMs below a given number of bond cleavages matched per peptide.}
+\title{Exclude crosslinks or CSMs below a threshold number of bond cleavages matched per peptide.}
 \usage{
 productIonFilter(datTab, minProducts.1 = 3, minProducts.2 = 3)
 }
 \arguments{
-\item{minProducts.1}{number of bonds cleaved in peptide 1}
+\item{datTab}{Parsed CLMS search results.}
 
-\item{minProducts.2}{number of bonds cleaved in peptide 2}
+\item{minProducts.1}{Number of bonds cleaved in peptide 1.}
+
+\item{minProducts.2}{Number of bonds cleaved in peptide 2.}
+}
+\value{
+A data frame
 }
 \description{
-exclude CSMs below a given number of bond cleavages matched per peptide.
+Exclude crosslinks or CSMs below a threshold number of bond cleavages matched per peptide.
+}
+\seealso{
+\code{\link[=calculateProductIons]{calculateProductIons()}}, \code{\link[=getProductIonMatches]{getProductIonMatches()}}
 }

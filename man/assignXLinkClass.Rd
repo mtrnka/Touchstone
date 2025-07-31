@@ -2,13 +2,16 @@
 % Please edit documentation in R/processInput.R
 \name{assignXLinkClass}
 \alias{assignXLinkClass}
-\title{is the crosslink interprotein (hetromeric) or intraprotein (homomeric)}
+\title{Determines whether crosslink is inter-protein (hetromeric) or intra-protein (homomeric)}
 \usage{
 assignXLinkClass(datTab)
 }
 \arguments{
-\item{datTab}{}
+\item{datTab}{Parsed CLMS search results.}
+}
+\value{
+A data frame
 }
 \description{
-is the crosslink interprotein (hetromeric) or intraprotein (homomeric)
+Determines whether crosslink is inter-protein (hetromeric) or intra-protein (homomeric)
 }

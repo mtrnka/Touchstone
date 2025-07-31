@@ -11,11 +11,37 @@ Description: Touchstone provides methods for automated classification of Protein
   Touchstone builds a Support Vector Machine (SVM) classifier for rescoring 
   Protein Prospector output that significantly outperforms metrics present in the
   Prospector Search Compare report. Touchstone can read an optional Module file which
-  enables annoation and summariziation of Macromolecular Modules (comprising multiple proteins) or Domains
-  (regions within a protein). Furthermore the module file can contain links to high
-  resoluton structure files (pdb/cif) to enable measumrent of C$\alpha$-C$\alpha$ 
-  distances spanned by crosslinks.
+  enables annoation and summariziation of Macromolecular Modules (comprising 
+  multiple proteins) or Domains (regions within a protein). Furthermore the 
+  module file can contain links to high resoluton structure files (pdb/cif) to 
+  enable measumrent of Calpha-Calpha distances spanned by crosslinks.
 License: GPL (>= 3)
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.3.1
+RoxygenNote: 7.3.2
+Imports: 
+    bio3d,
+    data.table,
+    dplyr,
+    e1071,
+    forcats,
+    furrr,
+    future,
+    ggplot2,
+    graphics,
+    grDevices,
+    grid,
+    magrittr,
+    methods,
+    minpack.lm,
+    purrr,
+    readr,
+    rlang,
+    stats,
+    stringr,
+    STRINGdb,
+    tibble,
+    tidyr,
+    tidyselect,
+    urltools,
+    xml2

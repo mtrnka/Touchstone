@@ -2,15 +2,21 @@
 % Please edit documentation in R/processInput.R
 \name{getProductIonMatches}
 \alias{getProductIonMatches}
-\title{parses the list matched product ions and translate to peptide bond position.}
+\title{Parses the list matched product ions and translate to peptide bond position.}
 \usage{
 getProductIonMatches(msms.ions, pep.len)
 }
 \arguments{
-\item{msms.ions}{list of product ion matches found in Search Compare output}
+\item{msms.ions}{List of product ion matches found in Search Compare output}
 
-\item{pep.len}{length of peptide}
+\item{pep.len}{Length of peptide}
+}
+\value{
+A numeric vector of bond cleavage indicies
 }
 \description{
-parses the list matched product ions and translate to peptide bond position.
+Parses the list matched product ions and translate to peptide bond position.
+}
+\seealso{
+\code{\link[=calculateProductIons]{calculateProductIons()}}
 }

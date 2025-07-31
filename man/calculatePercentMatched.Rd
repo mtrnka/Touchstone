@@ -2,13 +2,18 @@
 % Please edit documentation in R/processInput.R
 \name{calculatePercentMatched}
 \alias{calculatePercentMatched}
-\title{If MS-Product reporting of \%TIC matched is present use that.  Otherwise approximate with number of matched ions.}
+\title{Determines the percent of the total ion current in a product ion spectra that
+is matched by the crosslinked peptide annotation.}
 \usage{
 calculatePercentMatched(datTab)
 }
 \arguments{
-\item{datTab}{}
+\item{datTab}{Parsed CLMS search results.}
+}
+\value{
+A data frame
 }
 \description{
-If MS-Product reporting of \%TIC matched is present use that.  Otherwise approximate with number of matched ions.
+If MS-Product is reporting \verb{\%TIC matched} that value is used. Otherwise
+the value is calculated based on the number of ions matches.
 }

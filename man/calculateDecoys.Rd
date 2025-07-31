@@ -2,13 +2,16 @@
 % Please edit documentation in R/processInput.R
 \name{calculateDecoys}
 \alias{calculateDecoys}
-\title{determine whether a CSM is a decoy or target}
+\title{Assign decoy/target status for each line of a crosslinked dataframe.}
 \usage{
 calculateDecoys(datTab)
 }
 \arguments{
-\item{datTab}{parsed CLMS search results}
+\item{datTab}{Parsed CLMS search results.}
+}
+\value{
+A data frame
 }
 \description{
-determine whether a CSM is a decoy or target
+Assign decoy/target status for each line of a crosslinked dataframe.
 }

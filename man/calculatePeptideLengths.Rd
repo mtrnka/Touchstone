@@ -2,13 +2,16 @@
 % Please edit documentation in R/processInput.R
 \name{calculatePeptideLengths}
 \alias{calculatePeptideLengths}
-\title{calculate length of each peptide in amino acid residues.}
+\title{Calculate length of each peptide in amino acid residues.}
 \usage{
 calculatePeptideLengths(datTab)
 }
 \arguments{
-\item{datTab}{}
+\item{datTab}{Parsed CLMS search results.}
+}
+\value{
+A data frame
 }
 \description{
-calculate length of each peptide in amino acid residues.
+Calculate length of each peptide in amino acid residues.
 }

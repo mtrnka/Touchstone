@@ -9,20 +9,25 @@ readProspectorXLOutput(
   minPepLen = 3,
   minPepScore = 0,
   minScoreDiff = 0,
-  minIons = 3
+  minIons = 0
 )
 }
 \arguments{
 \item{inputFile}{A tab delimited search compare file generated using tstoneMS2.json param file}
 
-\item{minPepLen}{minimum length of each peptide in amino acids.}
+\item{minPepLen}{Minimum length of each peptide in amino acids.}
 
-\item{minPepScore}{minimum prospector score of each peptide.}
+\item{minPepScore}{Minimum Prospector score of each peptide.}
 
-\item{minScoreDiff}{minimum Score Difference for the CSM.}
+\item{minScoreDiff}{Minimum Score Difference for the CSM.}
 
-\item{minIons}{mimimum number of product ions matched for each peptide.}
+\item{minIons}{Mimimum number of product ions matched for each peptide.}
+}
+\value{
+A data frame
 }
 \description{
-Read Search Compare Output from Protein Prospector
+Function for importing Crosslinked Search Compare output into Touchstone.
+Search Compare output should be saved in tab delimited text format ideally
+created with tstone specific param files, such as \code{tstoneMS2.json}.
 }

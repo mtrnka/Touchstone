@@ -2,13 +2,17 @@
 % Please edit documentation in R/processInput.R
 \name{calculateProductIons}
 \alias{calculateProductIons}
-\title{calculates number of distinct bonds cleavages observed as product ions.}
+\title{Calculates the number of distinct backbone bond-cleavages observed as in the product ion spectrum.}
 \usage{
 calculateProductIons(datTab)
 }
 \arguments{
-\item{datTab}{}
+\item{datTab}{Parsed CLMS search results.}
+}
+\value{
+A data frame
 }
 \description{
-calculates number of distinct bonds cleavages observed as product ions.
+N-terminal ions (b-, c-) and C-terminal ions (y-, z-) are translated into a bond index.
+It is the number of unique bond indicies that is calculated here.
 }

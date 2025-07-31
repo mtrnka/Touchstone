@@ -2,13 +2,16 @@
 % Please edit documentation in R/processInput.R
 \name{addXlinkCount}
 \alias{addXlinkCount}
-\title{count number of CSMs per URP and number of URPs per PP}
+\title{Count number of CSMs per URP and the number of URPs per PP}
 \usage{
 addXlinkCount(datTab)
 }
 \arguments{
-\item{datTab}{}
+\item{datTab}{Parsed CLMS search results}
+}
+\value{
+A data frame
 }
 \description{
-count number of CSMs per URP and number of URPs per PP
+Count number of CSMs per URP and the number of URPs per PP
 }

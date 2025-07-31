@@ -2,13 +2,23 @@
 % Please edit documentation in R/processInput.R
 \name{calculateDiagnosticPairs}
 \alias{calculateDiagnosticPairs}
-\title{determined whether diagnostic ion pair from cleavable crosslinker was deteceted}
+\title{Determines which crosslinks contain matches to diagnostic/reporter ions (MH*/#)
+from cleavable crosslinking reagents.}
 \usage{
 calculateDiagnosticPairs(datTab, int.thresh = 0.05)
 }
 \arguments{
-\item{int.thresh}{minimum intensity for diagnostic ion.}
+\item{datTab}{Parsed CLMS search results.}
+
+\item{int.thresh}{Minimum intensity for diagnostic ion.}
+}
+\value{
+A data frame
 }
 \description{
-determined whether diagnostic ion pair from cleavable crosslinker was deteceted
+Determines which crosslinks contain matches to diagnostic/reporter ions (MH*/#)
+from cleavable crosslinking reagents.
+}
+\seealso{
+\code{\link[=getDiagnosticMatches]{getDiagnosticMatches()}}
 }

@@ -2,13 +2,18 @@
 % Please edit documentation in R/processInput.R
 \name{scoreFilter}
 \alias{scoreFilter}
-\title{prefilter CSMs by Prospector Score of each peptide}
+\title{Prefilter crosslinks or CSMs by Prospector Score of each peptide.}
 \usage{
 scoreFilter(datTab, minScore = 0)
 }
 \arguments{
-\item{minScore}{}
+\item{datTab}{Parsed CLMS search results.}
+
+\item{minScore}{Minimum Protein Prospector Score for each individual peptide}
+}
+\value{
+A data frame
 }
 \description{
-prefilter CSMs by Prospector Score of each peptide
+Prefilter crosslinks or CSMs by Prospector Score of each peptide.
 }

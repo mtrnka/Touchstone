@@ -2,13 +2,16 @@
 % Please edit documentation in R/processInput.R
 \name{calculatePairs}
 \alias{calculatePairs}
-\title{determine residue, peptide,and protein pairs}
+\title{Determine residue, peptide,and protein pairs}
 \usage{
 calculatePairs(datTab)
 }
 \arguments{
-\item{datTab}{}
+\item{datTab}{Parsed CLMS search results.}
+}
+\value{
+A data frame
 }
 \description{
-determine residue, peptide,and protein pairs
+Determine residue, peptide,and protein pairs
 }

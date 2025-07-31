@@ -2,13 +2,22 @@
 % Please edit documentation in R/processInput.R
 \name{getDiagnosticMatchesNonCleavable}
 \alias{getDiagnosticMatchesNonCleavable}
-\title{Analog of getDiagnostic Matches for non-cleavable crosslinkers. Looks for P, PL, PLK type ions.}
+\title{Determines which crosslinks contain matches to diagnostic/reporter ions (P,PL,PLK)
+from non-cleavable crosslinking reagents such as DSS/BS3.}
 \usage{
 getDiagnosticMatchesNonCleavable(msms.ions, msms.int)
 }
 \arguments{
-\item{msms.int}{}
+\item{msms.ions}{Columns containing list of detected ions, must be present in Search Compare output.}
+
+\item{msms.int}{Columns with corresponding intensity vaues fro detected ions.}
+}
+\value{
+A list of p-type ions and their intensities
 }
 \description{
-Analog of getDiagnostic Matches for non-cleavable crosslinkers. Looks for P, PL, PLK type ions.
+Analog of \code{getDiagnosticMatches()} for non-cleavable crosslinkers. Looks for P, PL, PLK type ions.
+}
+\seealso{
+\code{\link[=getDiagnosticMatches]{getDiagnosticMatches()}}, \link{calculateDiagnosticPairsNonCleavable}
 }

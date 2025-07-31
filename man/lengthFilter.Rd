@@ -2,13 +2,20 @@
 % Please edit documentation in R/processInput.R
 \name{lengthFilter}
 \alias{lengthFilter}
-\title{prefilter CSMs by length of each peptide.}
+\title{Prefilter crosslinks or CSMs by length of each peptide.}
 \usage{
 lengthFilter(datTab, minLen, maxLen)
 }
 \arguments{
-\item{maxLen}{}
+\item{datTab}{Parsed CLMS search results.}
+
+\item{minLen}{Mimum peptide length, as number of amino acid residues.}
+
+\item{maxLen}{Maximum peptide length, as number of amino acid residues.}
+}
+\value{
+A data frame
 }
 \description{
-prefilter CSMs by length of each peptide.
+Prefilter crosslinks or CSMs by length of each peptide.
 }

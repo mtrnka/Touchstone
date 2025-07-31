@@ -2,13 +2,20 @@
 % Please edit documentation in R/processInput.R
 \name{calculateDiagnosticPairsNonCleavable}
 \alias{calculateDiagnosticPairsNonCleavable}
-\title{analog of calcualte diagnostic pairs for non-cleavable crosslinkers}
+\title{Determines which crosslinks contain matches immonium related ions (P, PL, PLK)
+resulting from dissociation of non-cleavable crosslinking reagents such as BS3.}
 \usage{
 calculateDiagnosticPairsNonCleavable(datTab)
 }
 \arguments{
-\item{datTab}{}
+\item{datTab}{parsed CLMS search results}
+}
+\value{
+A data frame
 }
 \description{
-analog of calcualte diagnostic pairs for non-cleavable crosslinkers
+Analog of \code{calculateDiagnosticPairs()} for non-cleavable crosslinkers
+}
+\seealso{
+\code{\link[=getDiagnosticMatchesNonCleavable]{getDiagnosticMatchesNonCleavable()}}, \code{\link[=calculateDiagnosticPairs]{calculateDiagnosticPairs()}}
 }
