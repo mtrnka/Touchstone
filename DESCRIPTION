@@ -25,8 +25,6 @@ Imports:
     dplyr,
     e1071,
     forcats,
-    furrr,
-    future,
     ggplot2,
     graphics,
     grDevices,
@@ -39,9 +37,14 @@ Imports:
     rlang,
     stats,
     stringr,
-    STRINGdb,
     tibble,
     tidyr,
     tidyselect,
     urltools,
     xml2
+Suggests:
+    STRINGdb,
+    furrr,
+    future
+biocViews:
+    Software
