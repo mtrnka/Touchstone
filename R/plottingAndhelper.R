@@ -930,3 +930,16 @@ getStringScores <- function(datTab, ncbiTaxonomyCode = NULL) {
     )
   return(bind_rows(datTab.intra, datTab.inter))
 }
+
+#' Convenience function for working through the ribosome example dataset.
+#'
+#' @param path path to system file
+#' @returns A character vector
+#' @export
+touchstone_example <- function(path = NULL) {
+  if (is.null(path)) {
+    dir(system.file("extdata", package = "touchstone"))
+  } else {
+    system.file("extdata", path, package = "touchstone", mustWork = TRUE)
+  }
+}
