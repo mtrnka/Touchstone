@@ -1,6 +1,7 @@
 ---
-title: "Touchstone CLMS re-scoring, classification, and more for Protein Prospector"
+title: "Touchstone: CLMS re-scoring, classification, biological inference and more for Protein Prospector crosslink searches"
 output: github_document
+bibliography: tstone_readme.bib
 ---
 
 <!-- README.md is generated from README.Rmd. Please edit that file -->
@@ -10,66 +11,105 @@ knitr::opts_chunk$set(
   collapse = TRUE,
   comment = "#>",
   fig.path = "man/figures/README-",
-  out.width = "100%"
+  out.width = "100%",
+  cache = FALSE
 )
 ```
 
-# touchstone
+## Protein Prospector - Touchstone CLMS pipeline
 
 <!-- badges: start -->
 <!-- badges: end -->
 
-The Touchstone library exists to improve the functionality of [Protein Prospector](https://prospector.ucsf.edu/prospector/mshome.htm) for Crosslinking
-Mass Spectrometry. Touchstone re-scores Prospector CLMS results using an Support
-Vector Machine (SVM) classifier. It allows the user to classify datasets at a
-desired False Discovery Rate (FDR) threshold at various summarization levels:
-Crosslinked Spectral Matches (CSMs), Unique Residue Pairs (URPs), or Protein Pairs (PPs).
-Additionally Touchstone contains features to help with dataset valdiation by measuring
-euclidean distances of crosslinks against high-res structure files, or by querying
-[STRING-db](https://string-db.org/) for String Scores of putative protein interactions.
+The Touchstone library exists to improve the functionality of [Protein Prospector](https://prospector.ucsf.edu/prospector/mshome.htm){target="_blank"} for Crosslinking
+Mass Spectrometry [@trnka_matching_2014]. Touchstone re-scores Prospector CLMS 
+results using an Support Vector Machine (SVM) classifier that does a better 
+job discriminating between correct and incorrect crosslinks than the Prospector scores. 
 
-Touchstone can classify data into "Modules" which can either be used to designate
-either domains within a larger polypeptide or stable assemblies of multime polypeptides.
-There are convenience functions to export data to [XiNet](https://crosslinkviewer.org/)
-and some internal plotting functions for visualizing data at various summarization levels.
+It allows the user to classify datasets at a desired False Discovery Rate (FDR) 
+threshold at various summarization levels: Crosslinked Spectral Matches (CSMs), 
+Unique Residue Pairs (URPs), or Protein Pairs (PPs). Touchstone's FDR assessment
+are highly consistent with error rates measured assessed by various benchmarking
+datasets [@beveridge_synthetic_2020; @matzinger_mimicked_2022; @fischer_assessment_2025].
 
-Touchstone is an R package that came out of my own needs when process a lot of CLMS
-datasets searched with Prospector as a project scientist supporting numerous projects
-over a 10-year period. It is therefore a bit niche and wasn't developed with a wide
-user base in mind.It is rough around the edges and poorly supported. I am sharing
-it here because it might be helpful to some users, but if you are looking for a smooth
-user experience that doesn't require tinkering in R, you might be better served by
-other database search and re-scoring software.
+Additionally Touchstone contains features to help with dataset valdiation by 
+measuring euclidean distances of crosslinks against high-res structure files, 
+or by querying [STRING-db](https://string-db.org/){target="_blank"} for String Scores of 
+putative protein interactions.
+
+To aid with biological inference, Touchstone can optionally classify data into 
+"Modules" which can designate either domains within a larger polypeptide 
+or stable assemblies of multiple polypeptides (or both). There are convenience 
+functions to export data to [XiNet](https://crosslinkviewer.org/){target="_blank"} and some 
+internal plotting functions for quantitating CSMs across proteins or modules.
+
+Touchstone is an R package that that I developed to address my own needs when 
+analyzing CLMS datasets searched with Prospector, as a project scientist supporting 
+numerous [projects](https://scholar.google.com/citations?hl=en&user=Gae1r_AAAAAJ&view_op=list_works&sortby=pubdate){target="_blank"} over the last decade or so. It is therefore a bit niche 
+and wasn't developed with a wide user base in mind. Nor am I a software developer. 
+So, it is rough around the edges. I am sharing it here because it might be 
+helpful to some users, but if you are looking for a smooth user experience that 
+doesn't require tinkering in R, you might be better served by other CLMS database 
+search and re-scoring software.
 
 I am currently only distributing a version here that is run in an R command line
-environment, typically in RStudio. A demo version of a graphical interface (built in 
-Shiny) exists and is under development for eventual integration with Protein Prospector.
-This will be more accesible to a wider user-base.
+environment, typically in [RStudio](https://posit.co/download/rstudio-desktop/){target="_blank"}. 
+A demo version of a graphical interface (built in [Shiny](https://shiny.posit.co/){target="_blank"}) 
+exists and is under development for eventual integration with Protein Prospector. 
+This will be more accesible to a wider user-base. The eventual goal is to make 
+Prospector CLMS searches more widely accessible to the research community.
 
+The graphical demo version can be accessed at [shinyapps.io](https://prospts.shinyapps.io/tstoneapp/){target="_blank"}
 
+Additional instructions for the graphical demo are [here](https://msf.ucsf.edu/mike/crosslinkingClass/dataset_summary.html){target="_blank"}
+
+The rest of this mini-vignette will refer to running Touchstone inside of RStudio.
 
 ## Installation
 
-You can install the development version of touchstone from [GitHub](https://github.com/) with:
+The touchstone library is distributed on [GitHub](https://github.com/){target="_blank"}.
+Install with:
 
 ``` r
 # install.packages("devtools")
 devtools::install_github("mtrnka/Touchstone")
 ```
 
-## Example
+## 80S Ribosome data acquired by MS2.HCD.
 
-This is a basic example which shows you how to solve a common problem:
+80S ribosome was produced using a rabbit reticulocyte cell free expression system. 
+80S ribosomes were crosslinked with the cleavable reagent DSSO [@kao_development_2011].
 
-```{r example}
-#library(touchstone)
-## basic example code
+This ribosomal system for method development and optimization of CLMS 
+workflows. There is a high-res EM structure of the complex which can be helpful 
+in determining if the crosslinked are assigned correctly or not, [pdb:6HCJ](https://www.rcsb.org/structure/6hcj){target="_blank"}.
+
+The example dataset included with Touchstone is from 80S sample analyzed using a stepped-HCD 
+MS2 acquisition cycle (dataset #1). The modulefile categorizes the 80 or so ribosomal proteins to
+either the large (60S) or small (40S) subunits.
+
+![cryoEM structure of Rabbit 80S ribosome](https://cdn.rcsb.org/images/structures/6hcj_assembly-1.jpeg){width=30%}
+
+```{r load_data, message=FALSE}
+library(touchstone)
+library(tidyverse)
+
+pathToDemoFile <- system.file("extdata", "rRibo_DSSO_sthcd_scOut.txt", package="touchstone")
+ribo <- readProspectorXLOutput(pathToDemoFile, minPepLen = 4, minIons = 0)
+
 ```
 
-What is special about using `README.Rmd` instead of just `README.md`? You can include R chunks like so:
+The crosslinking database search was run with Prospector program **Batch Tag**.
+**Search Compare** is then used to process the search results and create a tab
+delimited text file compatible with Touchstone processing. Touchstone expects 
+unclassified search results with certain parameters included in the report. The
+recommended Search Compare Paramters are inlcuded as an example file:
 
-```{r cars}
-summary(cars)
+```{r search_compare_params}
+
+# install.packages("jsonlite")
+touchstone_example("tstoneMS2.4.json") %>% jsonlite::read_json()
+
 ```
 
 You'll still need to render `README.Rmd` regularly, to keep `README.md` up-to-date. `devtools::build_readme()` is handy for this.
@@ -81,3 +121,6 @@ plot(pressure)
 ```
 
 In that case, don't forget to commit and push the resulting figure files, so they display on GitHub and CRAN.
+
+
+## References:
