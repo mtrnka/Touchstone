@@ -70,9 +70,13 @@ The rest of this mini-vignette will refer to running Touchstone inside of RStudi
 The touchstone library is distributed on [GitHub](https://github.com/){target="_blank"}.
 Install with:
 
-```{r setup, results=FALSE}
+```{r setup, results=FALSE, message=FALSE}
 # install.packages("devtools")
-devtools::install_github("mtrnka/Touchstone@main")
+devtools::install_github("mtrnka/Touchstone")
+
+library(touchstone)
+library(tidyverse)
+
 ```
 
 ## 80S Ribosome data acquired by MS2.HCD.
@@ -84,26 +88,17 @@ This ribosomal system for method development and optimization of CLMS
 workflows. There is a high-res EM structure of the complex which can be helpful 
 in determining if the crosslinked are assigned correctly or not, [pdb:6HCJ](https://www.rcsb.org/structure/6hcj){target="_blank"}.
 
-The example dataset included with Touchstone is from 80S sample analyzed using a stepped-HCD 
-MS2 acquisition cycle (dataset #1). The modulefile categorizes the 80 or so ribosomal proteins to
-either the large (60S) or small (40S) subunits.
-
 ![cryoEM structure of Rabbit 80S ribosome](https://cdn.rcsb.org/images/structures/6hcj_assembly-1.jpeg){width=30%}
 
-```{r load_data, message=FALSE}
-library(touchstone)
-library(tidyverse)
+The example dataset included with Touchstone is from 80S sample, split across 4
+SEC fractions, each analyzed using a stepped-HCD MS2 acquisition cycle. Data were
+searched for crosslinks using Protein Prospector program *Batch Tag*, against a 
+protien database containing 77 ribosome sequences alongside a decoy database 
+where each of the 77 target was randomized as well as 10x longer than the target 
+sequences.
 
-pathToDemoFile <- touchstone_example("rRibo_DSSO_sthcd_scOut.txt")
-ribo <- readProspectorXLOutput(pathToDemoFile, minPepLen = 4, minIons = 0)
-
-```
-
-The crosslinking database search was run with Prospector program **Batch Tag**.
-**Search Compare** is then used to process the search results and create a tab
-delimited text file compatible with Touchstone processing. Touchstone expects 
-unclassified search results with certain parameters included in the report. The
-recommended Search Compare Paramters are inlcuded as an example file:
+Touchstone expects unclassified search results with certain parameters included 
+in the report. The recommended Search Compare Paramters are inlcuded as an example file:
 
 ```{r search_compare_params, results=FALSE}
 
@@ -113,13 +108,121 @@ touchstone_example("tstoneMS2.4.json") %>%
 
 ```
 
+For CLMS of defined protein compleses with 2-200 subunits, I typically use a decoy
+database that is either 5x or 10x larger than the target database. This does a better
+job of modeling the distribution of incorrect hits. Touchstone has a parameter called 
+the `decoy scaling factor` to adjust the math for this (it defaults to 1x). The 80S 
+ribosome search usesa decoy databse in which each decoy protein is 10x longer than 
+the corresponding target. If you don't use a value that matches the databse search
+conditions everything will be wrong. Set the appropriate value for the scaling factor:
+
+```{r scaling factor, messge=FALSE}
+
+setDecoyScalingFactor(10)
+```
+
+After setting the decoy scaling factor (if needed), read the *Search Compare* output
+into Touchstone:
+
+```{r load_data, message=FALSE}
+pathToDemoFile <- touchstone_example("rRibo_DSSO_sthcd_scOut.txt")
+ribo.xl <- readProspectorXLOutput(pathToDemoFile, minPepLen = 4, minIons = 0)
+
+```
+
+The main Touchstone function is `trainCrosslinkScore()`. Running this will re-score
+prospector CLMS results by building an SVM-score. `trainCrosslinkScore()` automatically
+handles hyper-paramater optimization, feature selection, and data pre-filtering. It 
+returns a list with CSMs and URPs along with score thresholds that will classify data
+at the target error rates. Finally it returns some information about the features,
+hyperparameter values, and prefilter values selected in the final model.
+
+
+```{r tuning, messge=FALSE}
+ribo.tune <- trainCrosslinkScore(ribo.xl, targetER = 0.01)
+
+ribo.tune
+
+ribo.csm <- ribo.tune$CSMs
+ribo.csm.1 <- ribo.tune$CSM.thresh
+
+# ribo.csm <- ribo.csm %>%
+#   processModuleFile("inst/extdata/rRibo_newMod_uniprot.txt")
+ribo.urp <- ribo.tune$URPs
+ribo.urp.1 <- ribo.tune$URP.thresh
+
+# ribo.ppi <- bestProtPair(ribo.csm)
+# ribo.ppi.1 <- findSeparateThresholdsModelled(ribo.ppi, targetER = 0.01)
+
+fdrPlots(ribo.urp, threshold=ribo.urp.1)
+calculateFDR(ribo.urp, threshold=ribo.urp.1)
+
+ribo.urp %>%
+  countDecoys(threshold=ribo.urp.1) %>%
+  flextable::flextable()
+
+ribo.urp.sd.1 <- findSeparateThresholds(ribo.urp, targetER=0.01)
+
+fdrPlots(ribo.urp, threshold=ribo.urp.sd.1, classifier="Score.Diff")
+calculateFDR(ribo.urp, threshold=ribo.urp.sd.1)
+
+ribo.urp %>%
+  countDecoys(threshold = ribo.urp.sd.1, classifier="Score.Diff") %>%
+  flextable::flextable()
+
+
+
+# fdrPlots(ribo.urp, ribo.urp.1)
+# calculateFDR(ribo.urp, ribo.urp.1)
+# 
+# fdrPlots(ribo2.urp, ribo2.urp.1)
+# calculateFDR(ribo2.urp, ribo2.urp.1)
+# 
+# fdrPlots(ribo.urp.lin, ribo.urp.lin.1)
+# calculateFDR(ribo.urp.lin, ribo.urp.lin.1)
+# 
+# ribo.urp %>%
+#   classifyDataset(ribo.urp.1) %>%
+#   countDecoys()
+# 
+# ribo2.urp %>%
+#   classifyDataset(ribo2.urp.1) %>%
+#   countDecoys()
+# 
+# ribo.urp.lin %>%
+#   classifyDataset(ribo.urp.lin.1) %>%
+#   countDecoys()
+# 
+# ribo.urp %>%
+#   classifyDataset(ribo.urp.1) %>%
+#   distancePlot2(threshold = 35)
+# 
+# fdrPlots(ribo.ppi, ribo.ppi.1)
+# calculateFDR(ribo.ppi, ribo.ppi.1)
+# 
+# ribo.ppi %>%
+#   classifyDataset(ribo.ppi.1) %>%
+#   ggplot(aes(wtCSM)) +
+#   geom_histogram(color="white") +
+#   facet_grid(rows = vars(Decoy2), scales="free_y")
+# 
+# ribo.csm %>%
+#   classifyDataset(ribo.ppi.1) %>%
+#   calculatePairs() %>%
+#   bestProtPair() %>%
+#   ggplot(aes(wtCSM)) +
+#   geom_histogram(color="white") +
+#   facet_grid(rows = vars(Decoy2), scales="free_y")
+
+```
+The modulefile categorizes the 80 or so ribosomal proteins to either the large 
+(60S) or small (40S) subunits and specified the mapping between the accession numbers
+and the pdb file.
+
+
+
 You'll still need to render `README.Rmd` regularly, to keep `README.md` up-to-date. `devtools::build_readme()` is handy for this.
 
-You can also embed plots, for example:
-
-```{r pressure, echo = FALSE}
-plot(pressure)
-```
 
 In that case, don't forget to commit and push the resulting figure files, so they display on GitHub and CRAN.
 
