@@ -415,11 +415,12 @@ deScaler <- function(datTab, scalingFactor = the$decoyScalingFactor) {
 #'
 fdrPlots <- function(datTab,
                      threshold = 0,
-                     classifier=.data$SVM.score,
+                     classifier="SVM.score",
                      scalingFactor = the$decoyScalingFactor,
                      separateFacets = T,
                      addLegend = T,
                      title = "FDR plot") {
+  classifier <- ensym(classifier)
   datTab <- ungroup(datTab)
   minValue = datTab %>% pull({{ classifier }}) %>% min(na.rm=T)
   minValue = floor(minValue)

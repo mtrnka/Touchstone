@@ -193,11 +193,13 @@ tuneSVM.helper <- function(datTab,
                          params=params,
                          scoreName=scoreName,
                          sampleNo = sampleNo,
+                         showTab = F,
                          cost=cost, gamma=gamma, kernel=kernel)
   datTab.urp <- bestResPair(datTab.csm)
   datTab.urp.thresh <- findSeparateThresholdsModelled(datTab.urp,
                                                       targetER = targetER,
-                                                      scalingFactor = scalingFactor)
+                                                      scalingFactor = scalingFactor,
+                                                      plot = F)
   numHits <- classifyDataset(datTab.urp, datTab.urp.thresh) %>%
     removeDecoys() %>%
     count(.data$xlinkClass)
@@ -233,6 +235,7 @@ tuneSVM.helper <- function(datTab,
 #' @param params Character vector specifying names of the features in `datTab` used to train model.
 #' @param scoreName Name for the new scoring function.
 #' @param sampleNo Size of the training dataset (integer).
+#' @param showTab print classificaiton table?
 #' @param ... paramters passed to `e1071:svm()` function
 #' @seealso [trainCrosslinkScore()], [tuneSVM.helper()], [tuneSVM()]
 #' @return A data frame, one column larger than the input containing the new score.
@@ -241,6 +244,7 @@ buildSVM <- function(datTab,
                      params=params.best,
                      scoreName="SVM.score",
                      sampleNo = 20000,
+                     showTab = F,
                      ...) {
   datTab$massError <- abs(datTab$ppm - mean(datTab$ppm))
   num.rows <- nrow(datTab)
@@ -280,9 +284,11 @@ buildSVM <- function(datTab,
   datTab[ind.1, "score.1"] <- NA
   datTab[ind.2, "score.2"] <- NA
   datTab[[scoreName]] <- purrr::map2_dbl(datTab$score.1, datTab$score.2, function(x, y) mean(c(x, y), na.rm=T))
-  tab <- table(datTab$Decoy2, datTab[[scoreName]] > 0)
-  print(tab)
-  print(paste("specificity:", round(tab[1]/(tab[1]+tab[3]),2)))
+  if (showTab) {
+    tab <- table(datTab$Decoy2, datTab[[scoreName]] > 0)
+    print(tab)
+    print(paste("specificity:", round(tab[1]/(tab[1]+tab[3]),2)))
+  }
   return(datTab)
 }
 

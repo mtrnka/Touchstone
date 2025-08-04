@@ -128,12 +128,14 @@ calculateDecoyFractions <- function(datTab, scalingFactor=the$decoyScalingFactor
 #' @param targetER desired error rate (typically FDR, but can be something else like violation rate or ground truth based error)
 #' @param scalingFactor An integer k. The multiple by which decoy DB is larger than target DB.
 #' @param classifier Column name in `datTab` used as the classifier to use to rank hits.
+#' @param plot Show plot?
 #' @return A data frame
 #' @keywords internal
 generateDecoyTable <- function(datTab,
                                targetER=0.01,
                                scalingFactor = the$decoyScalingFactor,
-                               classifier=.data$SVM.score) {
+                               classifier=.data$SVM.score,
+                               plot=T) {
   class = datTab %>% pull({{classifier}})
   class.min = floor(min(class))
   class.max = ceiling(max(class))
@@ -177,22 +179,11 @@ generateDecoyTable <- function(datTab,
       abs(.data$fdr.exp - targetER)/maxFDR < 0.25 ~ 1,
       abs(.data$fdr.exp - targetER)/maxFDR < 0.5 ~ .1,
       TRUE ~ 0.5))
-  # decTable.tailfit <- minpack.lm::nlsLM(fdr.exp ~ I(maxFDR * A / (A + C**decTable$thresh)),
-  #                                       data=decTable,
-  #                                       start=list(A=1, C = exp(1)),
-  #                                       lower=c("A"=0, "C"=1),
-  #                                       weights=decTable$fdr.weights,
-  #                                       control=list(maxiter=100))
   decTable.tailfit <- minpack.lm::nlsLM(fdr.exp ~ I(maxFDR/ (1 + exp(A*(decTable$thresh - C)))),
                                         data=decTable,
                                         start=list(A=1, C = 0),
                                         weights=decTable$fdr.weights,
                                         control=list(maxiter=100))
-  # decTable <- decTable %>%
-  #   mutate(
-  #     fdr = maxFDR*stats::coef(decTable.tailfit)["A"] /
-  #       (stats::coef(decTable.tailfit)["A"] + stats::coef(decTable.tailfit)["C"]**decTable$thresh),
-  #   )
   decTable <- decTable %>%
     mutate(
       fdr = maxFDR /
@@ -206,7 +197,7 @@ generateDecoyTable <- function(datTab,
     theme_bw() + xlim(c(-8,4)) +
     geom_vline(xintercept = decTable$thresh[firstGuess], color="red", linetype="dashed") +
     geom_hline(yintercept = targetER, color="red", linetype="dashed")
-  suppressWarnings(plot(decTable.plot))
+  if (plot) {suppressWarnings(plot(decTable.plot))}
   return(decTable)
 }
 
@@ -365,16 +356,17 @@ findSeparateThresholds <- function(datTab, targetER=0.01, minThreshold=-5,
 #' @param targetER Desired FDR.
 #' @param minThreshold Minimum acceptable SVM.score threshold.
 #' @param scalingFactor k, multiple by which which decoy DB is larger than target DB
+#' @param plot Show decoy table plot?
 #' @return A list of inter and intra-protein thresholds to give the desired error rate.
 #' @seealso [findThreshold()], [findThresholdModelled()], [findSeparateThresholds()]
 #' @export
 #'
-findSeparateThresholdsModelled <- function(datTab, targetER=0.01, minThreshold=-5, scalingFactor=the$decoyScalingFactor) {
+findSeparateThresholdsModelled <- function(datTab, targetER=0.01, minThreshold=-5, scalingFactor=the$decoyScalingFactor, plot=T) {
   interTab <- datTab %>%
     filter(.data$xlinkClass=="interProtein")
   intraTab <- datTab %>%
     filter(.data$xlinkClass=="intraProtein")
-  interThresh <- findThresholdModelled(interTab, targetER, minThreshold, scalingFactor=scalingFactor)[[1]]
+  interThresh <- findThresholdModelled(interTab, targetER, minThreshold, scalingFactor=scalingFactor, plot=plot)[[1]]
   intraThresh <- findThreshold(intraTab, targetER, minThreshold, classifier="SVM.score", scalingFactor=scalingFactor)[[1]]
   return(list("intraThresh"=intraThresh, "interThresh"=interThresh))
 }
@@ -393,7 +385,8 @@ findSeparateThresholdsModelled <- function(datTab, targetER=0.01, minThreshold=-
 #' @return A data frame
 #' @export
 #'
-classifyDataset <- function(datTab, threshold=list(), classifier = .data$SVM.score) {
+classifyDataset <- function(datTab, threshold=list(), classifier = "SVM.score") {
+  classifier <- enquo(classifier)
   tryCatch(
     if (is.numeric(threshold) & length(threshold) == 1){
       datTab <- classifySingleThreshold(datTab, singleThresh = threshold, classifier = {{ classifier }})
@@ -420,7 +413,8 @@ classifyDataset <- function(datTab, threshold=list(), classifier = .data$SVM.sco
 #' @return A data frame
 #' @export
 #'
-classifySingleThreshold <- function(datTab, singleThresh, classifier = .data$SVM.score) {
+classifySingleThreshold <- function(datTab, singleThresh, classifier = "SVM.score") {
+  classifier <- enquo(classifier)
   if (is.numeric(singleThresh) & length(singleThresh==1)) {
     datTab <- datTab %>%
       filter({{classifier}} >= singleThresh)
@@ -441,7 +435,8 @@ classifySingleThreshold <- function(datTab, singleThresh, classifier = .data$SVM
 #' @return A data frame
 #' @export
 #'
-classifySeparateThresholds <- function(datTab, separateThresh, classifier = .data$SVM.score) {
+classifySeparateThresholds <- function(datTab, separateThresh, classifier = "SVM.score") {
+  classifier = ensym(classifier)
   datTab <- datTab %>%
     filter(
       (.data$xlinkClass == "interProtein" & {{classifier}} >= separateThresh$interThresh) |
@@ -505,10 +500,11 @@ generateErrorTable.sep <- function(datTab,
 #'
 #' @param datTab Parsed CLMS search results.
 #' @param threshold A list or a numeric of length 1. List must contain either `globalThresh` or both `interThresh` and `intraThresh` numeric elements.
+#' @parm ... passed down to `classifyDataset()`
 #' @returns A data frame
 #' @export
-countDecoys <- function(datTab, threshold=NULL) {
-  if (!is.null(threshold)) datTab <- classifyDataset(datTab, threshold)
+countDecoys <- function(datTab, threshold=NULL, ...) {
+  if (!is.null(threshold)) datTab <- classifyDataset(datTab, threshold, ...)
   datTab %>%
     deScaler(scalingFactor = the$decoyScalingFactor) %>%
     group_by(.data$xlinkClass, .data$Decoy) %>%
