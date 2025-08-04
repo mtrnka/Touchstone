@@ -70,9 +70,9 @@ The rest of this mini-vignette will refer to running Touchstone inside of RStudi
 The touchstone library is distributed on [GitHub](https://github.com/){target="_blank"}.
 Install with:
 
-``` r
+```{r setup, results=FALSE}
 # install.packages("devtools")
-devtools::install_github("mtrnka/Touchstone")
+devtools::install_github("mtrnka/Touchstone@main")
 ```
 
 ## 80S Ribosome data acquired by MS2.HCD.
@@ -94,7 +94,7 @@ either the large (60S) or small (40S) subunits.
 library(touchstone)
 library(tidyverse)
 
-pathToDemoFile <- system.file("extdata", "rRibo_DSSO_sthcd_scOut.txt", package="touchstone")
+pathToDemoFile <- touchstone_example("rRibo_DSSO_sthcd_scOut.txt")
 ribo <- readProspectorXLOutput(pathToDemoFile, minPepLen = 4, minIons = 0)
 
 ```
@@ -105,10 +105,11 @@ delimited text file compatible with Touchstone processing. Touchstone expects
 unclassified search results with certain parameters included in the report. The
 recommended Search Compare Paramters are inlcuded as an example file:
 
-```{r search_compare_params}
+```{r search_compare_params, results=FALSE}
 
 # install.packages("jsonlite")
-touchstone_example("tstoneMS2.4.json") %>% jsonlite::read_json()
+touchstone_example("tstoneMS2.4.json") %>% 
+  jsonlite::read_json()
 
 ```
 
