@@ -107,13 +107,13 @@ trainCrosslinkScore <- function(datTab,
     filter(dplyr::between(.data$interInt, 0.975 * max(.data$interInt, na.rm=T), max(.data$interInt, na.rm=T))) %>%
     filter(.data$interHits == max(.data$interHits)) %>%
     pull(.data$index)
-  CSM.thresh <- findSeparateThresholdsModelled(bestModel$CSMs, targetER = targetER, scalingFactor = scalingFactor)
-  print(tuned.parse)
-  print(tuned.plot)
   suppressWarnings(plot(tuned.plot))
   tuned[[length(tuned) + 1]] <- tuned.parse
   tuned[[length(tuned) + 1]] <- bestModelIndex
   bestModel <- tuned[[bestModelIndex]]
+  CSM.thresh <- findSeparateThresholdsModelled(bestModel$CSMs, targetER = targetER, scalingFactor = scalingFactor)
+  print(tuned.parse)
+  print(tuned.plot)
   return(list(
     "CSMs" = bestModel$CSMs,
     "URPs" = bestModel$URPs,
