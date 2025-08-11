@@ -482,7 +482,7 @@ bestPair <- function(datTab,
     filter(n() > 0) %>%
     filter({{classifier}}==max({{classifier}})) %>%
     slice(1) %>%
-    ungroup()
+    ungroup({{summarizationVar}})
   return(datTab)
 }
 

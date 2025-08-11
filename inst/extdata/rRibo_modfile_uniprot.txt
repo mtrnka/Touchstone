@@ -1,0 +1,78 @@
+Acc	Old.acc	Protein.name	Gene.name	Module	first.AA	last.AA	PDB.code	PDB.chain
+G1TT27	A3	Large ribosomal subunit protein uL2 (60S ribosomal protein L8)	RPL8	60S Ribosome	0	257	6hcj.cif	A3
+G1TDB3	aa2	Small ribosomal subunit protein eS25 (40S ribosomal protein S25)	RPS25	40S Ribosome	0	124	6hcj.cif	a2
+G1SNY0	aa3	Large ribosomal subunit protein uL15 (60S ribosomal protein L27a)	RPL27A	60S Ribosome	0	148	6hcj.cif	a3
+G1TLT8	B2	Small ribosomal subunit protein uS2 (37 kDa laminin receptor precursor) (37LRP) (37/67 kDa laminin receptor) (LRP/LR) (67 kDa laminin receptor) (67LR) (Laminin receptor 1) (LamR) (Laminin-binding protein precursor p40) (LBP/p40)	RPSA	40S Ribosome	0	295	6hcj.cif	B2
+G1TL06	B3	Large ribosomal subunit protein uL3 (60S ribosomal protein L3)	RPL3	60S Ribosome	0	403	6hcj.cif	B3
+G1TFE8	bb2	Small ribosomal subunit protein eS26 (40S ribosomal protein S26)	RPS26	40S Ribosome	0	115	6hcj.cif	b2
+G1SGR6	bb3	Large ribosomal subunit protein eL29 (60S ribosomal protein L29)	RPL29	60S Ribosome	0	245	6hcj.cif	b3
+G1SS70	C2	Small ribosomal subunit protein eS1 (40S ribosomal protein S3a)	RPS3A	40S Ribosome	0	264	6hcj.cif	C2
+G1SVW5	C3	Large ribosomal subunit protein uL4 (60S ribosomal protein L4)	RPL4	60S Ribosome	0	413	6hcj.cif	C3
+G1TZ76	cc2	Small ribosomal subunit protein eS27 (40S ribosomal protein S27)	RPS27	40S Ribosome	0	84	6hcj.cif	c2
+G1TDL2	cc3	Large ribosomal subunit protein eL30 (60S ribosomal protein L30)	RPL30	60S Ribosome	0	115	6hcj.cif	c3
+G1SWM1	D2	Small ribosomal subunit protein uS5 (40S ribosomal protein S2)	RPS2	40S Ribosome	0	292	6hcj.cif	D2
+P19949	D3	Large ribosomal subunit protein uL18 (60S ribosomal protein L5)	RPL5	60S Ribosome	0	297	6hcj.cif	D3
+G1TIB4	dd2	Small ribosomal subunit protein eS28 (40S ribosomal protein S28)	RPS28	40S Ribosome	0	69	6hcj.cif	d2
+G1SHG0	dd3	Large ribosomal subunit protein eL31 (60S ribosomal protein L31)	RPL31	60S Ribosome	0	125	6hcj.cif	d3
+G1TNM3	E2	Small ribosomal subunit protein uS3 (40S ribosomal protein S3) (EC 4.2.99.18)	RPS3	40S Ribosome	0	243	6hcj.cif	E2
+G1SKF7	E3	Large ribosomal subunit protein eL6 (60S ribosomal protein L6)	RPL6	60S Ribosome	0	291	6hcj.cif	E3
+G1U7M4	ee2	Small ribosomal subunit protein uS14 (40S ribosomal protein S29)	RPS29	40S Ribosome	0	56	6hcj.cif	e2
+G1TUN8	ee3	Large ribosomal subunit protein eL32 (60S ribosomal protein L32)	RPL32	60S Ribosome	0	135	6hcj.cif	e3
+G1TK17	F2	Small ribosomal subunit protein eS4 (40S ribosomal protein S4)	RPS4X	40S Ribosome	0	263	6hcj.cif	F2
+G1SV32	F3	Large ribosomal subunit protein uL30 (60S ribosomal protein L7)	RPL7	60S Ribosome	0	208	6hcj.cif	F3
+G1T8A2	ff2	Ubiquitin-like FUBI-ribosomal protein eS30 fusion protein (FAU ubiquitin like and ribosomal protein S30 fusion) [Cleaved into: Ubiquitin-like protein FUBI; Small ribosomal subunit protein eS30 (40S ribosomal protein S30)]	FAU	40S Ribosome	0	133	6hcj.cif	f2
+G1SF08	ff3	Large ribosomal subunit protein eL33 (60S ribosomal protein L35a)	RPL35A	60S Ribosome	0	110	6hcj.cif	f3
+G1TFM5	G2	Small ribosomal subunit protein uS7 (40S ribosomal protein S5)	RPS5	40S Ribosome	0	204	6hcj.cif	G2
+G1STW0	G3	Large ribosomal subunit protein eL8 (60S ribosomal protein L7a)	RPL7A	60S Ribosome	0	319	6hcj.cif	G3
+G1SK22	gg2	Ubiquitin-ribosomal protein eS31 fusion protein [Cleaved into: Ubiquitin; Small ribosomal subunit protein eS31 (40S ribosomal protein S27a)]	RPS27A	40S Ribosome	0	156	6hcj.cif	g2
+G1TXG5	gg3	Large ribosomal subunit protein eL34 (60S ribosomal protein L34)	RPL34	60S Ribosome	0	117	6hcj.cif	g3
+G1TM55	H2	Small ribosomal subunit protein eS6 (40S ribosomal protein S6)	RPS6	40S Ribosome	0	249	6hcj.cif	H2
+G1SWI6	H3	Large ribosomal subunit protein uL6 (60S ribosomal protein L9)	RPL9	60S Ribosome	0	192	6hcj.cif	H3
+G1SJB4	hh2	Small ribosomal subunit protein RACK1 (Receptor of activated protein C kinase 1)	RACK1	40S Ribosome	0	317	6hcj.cif	h2
+G1SIT5	hh3	Large ribosomal subunit protein uL29 (60S ribosomal protein L35)	RPL35	60S Ribosome	0	123	6hcj.cif	h3
+G1SVB0	I2	Small ribosomal subunit protein eS7 (40S ribosomal protein S7)	RPS7	40S Ribosome	0	194	6hcj.cif	I2
+B7NZQ2	I3	Large ribosomal subunit protein uL16 (60S ribosomal protein L10) (Ribosomal protein L10)	RPL10	60S Ribosome	0	214	6hcj.cif	I3
+G1TTQ5	ii3	Large ribosomal subunit protein eL36 (60S ribosomal protein L36)	RPL36	60S Ribosome	0	105	6hcj.cif	i3
+G1TJW1	J2	Small ribosomal subunit protein eS8 (40S ribosomal protein S8)	RPS8	40S Ribosome	0	208	6hcj.cif	J2
+G1TUB8	J3	Large ribosomal subunit protein uL5 (60S ribosomal protein L11)	RPL11	60S Ribosome	0	178	6hcj.cif	J3
+U3KPD5	jj3	Large ribosomal subunit protein eL37 (60S ribosomal protein L37)	RPL37	60S Ribosome	0	97	6hcj.cif	j3
+B7NZS8	K2	Small ribosomal subunit protein uS4 (40S ribosomal protein S9)	RPS9	40S Ribosome	0	194	6hcj.cif	K2
+G1U001	kk3	Large ribosomal subunit protein eL38 (60S ribosomal protein L38)	RPL38	60S Ribosome	0	70	6hcj.cif	k3
+G1T168	L2	Small ribosomal subunit protein eS10 (40S ribosomal protein S10)	RPS10	40S Ribosome	0	165	6hcj.cif	L2
+G1TKB3	L3	Large ribosomal subunit protein eL13 (60S ribosomal protein L13)	RPL13	60S Ribosome	0	211	6hcj.cif	L3
+G1SYU7	ll3	Large ribosomal subunit protein eL39 (60S ribosomal protein L39)	RPL39	60S Ribosome	0	51	6hcj.cif	l3
+G1TRM4	M2	Small ribosomal subunit protein uS17 (40S ribosomal protein S11)	RPS11	40S Ribosome	0	158	6hcj.cif	M2
+G1SZ12	M3	Large ribosomal subunit protein eL14 (60S ribosomal protein L14)	RPL14	60S Ribosome	0	218	6hcj.cif	M3
+P0DXC2	mm3	Ubiquitin-ribosomal protein eL40 fusion protein (Ubiquitin A-52 residue ribosomal protein fusion product 1) [Cleaved into: Ubiquitin; Large ribosomal subunit protein eL40 (60S ribosomal protein L40)]	UBA52	60S Ribosome	0	128	6hcj.cif	m3
+G1SFR8	N2	Small ribosomal subunit protein eS12 (40S ribosomal protein S12)	RPS12	40S Ribosome	0	132	6hcj.cif	N2
+G1T0C1	N3	Large ribosomal subunit protein eL15 (60S ribosomal protein L15)	RPL15	60S Ribosome	0	204	6hcj.cif	N3
+A0A087WNH4	nn3	Small ribosomal subunit protein eS32 (60S ribosomal protein L41) (Large ribosomal subunit protein eL41)	RPL41	60S Ribosome	0	25	6hcj.cif	n3
+G1SP51	O2	Small ribosomal subunit protein uS15 (40S ribosomal protein S13)	RPS13	40S Ribosome	0	151	6hcj.cif	O2
+G1TVS8	O3	Large ribosomal subunit protein uL13 (60S ribosomal protein L13a)	RPL13A	60S Ribosome	0	203	6hcj.cif	O3
+G1T040	oo3	Large ribosomal subunit protein eL42 (60S ribosomal protein L36a)	RPL36A	60S Ribosome	0	111	6hcj.cif	o3
+G1T1F0	P2	Small ribosomal subunit protein uS11 (40S ribosomal protein S14)	RPS14	40S Ribosome	0	151	6hcj.cif	P2
+G1SCJ6	P3	Large ribosomal subunit protein uL22 (60S ribosomal protein L17)	RPL17	60S Ribosome	0	184	6hcj.cif	P3
+G1SY53	pp3	Large ribosomal subunit protein eL43 (60S ribosomal protein L37a)	RPL37A	60S Ribosome	0	92	6hcj.cif	p3
+G1U0Q2	Q2	Small ribosomal subunit protein uS19 (40S ribosomal protein S15)	RPS15	40S Ribosome	0	145	6hcj.cif	Q2
+G1TFE0	Q3	Large ribosomal subunit protein eL18 (60S ribosomal protein L18)	RPL18	60S Ribosome	0	188	6hcj.cif	Q3
+G1SGX4	R2	Small ribosomal subunit protein uS9 (40S ribosomal protein S16)	RPS16	40S Ribosome	0	146	6hcj.cif	R2
+G1TYL6	R3	Large ribosomal subunit protein eL19 (60S ribosomal protein L19)	RPL19	60S Ribosome	0	196	6hcj.cif	R3
+G1U7L1	rr3	Large ribosomal subunit protein eL28 (60S ribosomal protein L28)	RPL28	60S Ribosome	0	137	6hcj.cif	r3
+G1TU13	S2	Small ribosomal subunit protein eS17 (40S ribosomal protein S17)	RPS17	40S Ribosome	0	135	6hcj.cif	S2
+G1TTY7	S3	Large ribosomal subunit protein eL20 (60S ribosomal protein L18a)	RPL18A	60S Ribosome	0	176	6hcj.cif	S3
+G1TPG3	T2	Small ribosomal subunit protein uS13 (40S ribosomal protein S18)	RPS18	40S Ribosome	0	152	6hcj.cif	T2
+G1SHQ2	T3	Large ribosomal subunit protein eL21 (60S ribosomal protein L21)	RPL21	60S Ribosome	0	160	6hcj.cif	T3
+G1SPK4	tt3	Large ribosomal subunit protein uL10 (60S acidic ribosomal protein P0)	RPLP0	60S Ribosome	0	318	6hcj.cif	t3
+G1TN62	U2	Small ribosomal subunit protein eS19 (40S ribosomal protein S19)	RPS19	40S Ribosome	0	145	6hcj.cif	U2
+G1TSG1	U3	Large ribosomal subunit protein eL22 (60S ribosomal protein L22)	RPL22	60S Ribosome	0	128	6hcj.cif	U3
+G1SMR7	uu3	Large ribosomal subunit protein uL11 (60S ribosomal protein L12)	RPL12	60S Ribosome	0	165	6hcj.cif	u3
+G1SIZ2	V2	Small ribosomal subunit protein uS10 (40S ribosomal protein S20)	RPS20	40S Ribosome	0	119	6hcj.cif	V2
+G1T6D1	V3	Large ribosomal subunit protein uL14 (60S ribosomal protein L23)	RPL23	60S Ribosome	0	140	6hcj.cif	V3
+G1TM82	W2	Small ribosomal subunit protein eS21 (40S ribosomal protein S21)	RPS21	40S Ribosome	0	83	6hcj.cif	W2
+G1SKZ8	ww3	Large ribosomal subunit protein uL1 (60S ribosomal protein L10a)	RPL10A	60S Ribosome	0	217	6hcj.cif	w3
+G1TG89	X2	Small ribosomal subunit protein uS8 (40S ribosomal protein S15a)	RPS15A	40S Ribosome	0	130	6hcj.cif	X2
+G1SE76	X3	Large ribosomal subunit protein uL23 (60S ribosomal protein L23a)	RPL23A	60S Ribosome	0	156	6hcj.cif	X3
+G1SZ47	Y2	Small ribosomal subunit protein uS12 (40S ribosomal protein S23)	RPS23	40S Ribosome	0	143	6hcj.cif	Y2
+G1SQH0	Y3	Large ribosomal subunit protein uL24 (60S ribosomal protein L26)	RPL26	60S Ribosome	0	145	6hcj.cif	Y3
+A0A5F9D2E6	Z2	Small ribosomal subunit protein eS24 (40S ribosomal protein S24)	RPS24	40S Ribosome	0	133	6hcj.cif	Z2
+G1TXF6	Z3	Large ribosomal subunit protein eL27 (60S ribosomal protein L27)	RPL27	60S Ribosome	0	136	6hcj.cif	Z3

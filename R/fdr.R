@@ -13,10 +13,10 @@
 #'
 calculateFDR <- function(datTab,
                          threshold=list(intraThresh=-100,interThresh=-100),
-                         classifier=.data$SVM.score,
+                         classifier="SVM.score",
                          scalingFactor=the$decoyScalingFactor) {
   classifier.quo <- enquo(classifier)
-  datTab <- classifyDataset(datTab, threshold=threshold, classifier=!!classifier.quo)
+  datTab <- classifyDataset(datTab, threshold=threshold, classifier={{ classifier.quo }})
   decoyFractions <- calculateDecoyFractions(datTab, scalingFactor)
   fdr <- (decoyFractions["ffTT"] + decoyFractions["ftTT"]) / decoyFractions["TT"]
   names(fdr) <- NULL
