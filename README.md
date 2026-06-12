@@ -7,6 +7,7 @@ more for Protein Prospector crosslink searches
 ## Protein Prospector - Touchstone CLMS pipeline
 
 <!-- badges: start -->
+
 <!-- badges: end -->
 
 The Touchstone library exists to extend and improve the functionality of
@@ -83,8 +84,31 @@ demo_pkgs <- c("devtools", "tidyverse")
 pks_to_install <- demo_pkgs[!demo_pkgs %in% installed.packages()]
 if (length(pks_to_install) > 0) install.packages(pks_to_install)
 lapply(demo_pkgs, library, character.only = TRUE)
+#> Warning: package 'devtools' was built under R version 4.4.3
+#> Warning: package 'ggplot2' was built under R version 4.4.3
+#> Warning: package 'tibble' was built under R version 4.4.3
+#> Warning: package 'tidyr' was built under R version 4.4.3
+#> Warning: package 'readr' was built under R version 4.4.3
+#> Warning: package 'purrr' was built under R version 4.4.3
+#> Warning: package 'dplyr' was built under R version 4.4.3
+#> Warning: package 'lubridate' was built under R version 4.4.3
 
 devtools::install_github("mtrnka/Touchstone")
+#> Warning: `install_github()` was deprecated in devtools 2.5.0.
+#> ℹ Please use pak::pak("user/repo") instead.
+#> This warning is displayed once per session.
+#> Call `lifecycle::last_lifecycle_warnings()` to see where this warning was
+#> generated.
+#> Warning: unable to access index for repository https://bioconductor.org/packages/3.18/bioc/bin/macosx/big-sur-arm64/contrib/4.4:
+#>   cannot open URL 'https://bioconductor.org/packages/3.18/bioc/bin/macosx/big-sur-arm64/contrib/4.4/PACKAGES'
+#> Warning: unable to access index for repository https://bioconductor.org/packages/3.18/data/annotation/bin/macosx/big-sur-arm64/contrib/4.4:
+#>   cannot open URL 'https://bioconductor.org/packages/3.18/data/annotation/bin/macosx/big-sur-arm64/contrib/4.4/PACKAGES'
+#> Warning: unable to access index for repository https://bioconductor.org/packages/3.18/data/experiment/bin/macosx/big-sur-arm64/contrib/4.4:
+#>   cannot open URL 'https://bioconductor.org/packages/3.18/data/experiment/bin/macosx/big-sur-arm64/contrib/4.4/PACKAGES'
+#> Warning: unable to access index for repository https://bioconductor.org/packages/3.18/workflows/bin/macosx/big-sur-arm64/contrib/4.4:
+#>   cannot open URL 'https://bioconductor.org/packages/3.18/workflows/bin/macosx/big-sur-arm64/contrib/4.4/PACKAGES'
+#> Warning: unable to access index for repository https://bioconductor.org/packages/3.18/books/bin/macosx/big-sur-arm64/contrib/4.4:
+#>   cannot open URL 'https://bioconductor.org/packages/3.18/books/bin/macosx/big-sur-arm64/contrib/4.4/PACKAGES'
 library(touchstone)
 ```
 
@@ -139,7 +163,8 @@ setDecoyScalingFactor(10)
 ```
 
 After setting the decoy scaling factor (if needed), read the *Search
-Compare* output into Touchstone:
+Compare* output into Touchstone restricting results to peptides with at
+least 4 residues:
 
 ``` r
 pathToDemoFile <- touchstone_example("M6.sthcd_scout.txt")
@@ -180,23 +205,23 @@ in the final model.
 ribo.tune <- trainCrosslinkScore(ribo.xl, targetER = 0.01)
 ```
 
-<img src="man/figures/README-tuning-1.png" width="100%" /><img src="man/figures/README-tuning-2.png" width="100%" />
+<img src="man/figures/README-tuning-1.png" alt="" width="100%" /><img src="man/figures/README-tuning-2.png" alt="" width="100%" />
 
     #>    index cost gamma  interInt interHits
-    #> 1      6   10  0.05 1713.7292      1129
-    #> 2      8    5  0.10 1678.8571      1059
-    #> 3      9   10  0.10 1676.2727      1088
-    #> 4      7    1  0.10 1657.7660       990
-    #> 5      5    5  0.05 1651.2800      1019
-    #> 6      4    1  0.05 1537.7708       823
-    #> 7      3   10  0.01 1359.5500       552
-    #> 8      2    5  0.01 1292.1622       478
-    #> 9     10    1 23.00  813.4211       299
-    #> 10    12   10 23.00  739.2353       259
-    #> 11    11    5 23.00  716.3125       248
-    #> 12     1    1  0.01  699.5000       268
+    #> 1      8    5  0.10 1718.7333      1174
+    #> 2      6   10  0.05 1716.3333      1071
+    #> 3      9   10  0.10 1691.6000      1098
+    #> 4      5    5  0.05 1681.0426       985
+    #> 5      7    1  0.10 1665.9792      1040
+    #> 6      4    1  0.05 1505.6545       803
+    #> 7      3   10  0.01 1361.1351       524
+    #> 8      2    5  0.01 1327.5263       544
+    #> 9     10    1 23.00  807.4706       299
+    #> 10    11    5 23.00  768.4706       293
+    #> 11    12   10 23.00  749.6842       294
+    #> 12     1    1  0.01  711.1961       260
 
-<img src="man/figures/README-tuning-3.png" width="100%" />
+<img src="man/figures/README-tuning-3.png" alt="" width="100%" />
 
 We can now look at URPs classified by touchstone at the target FDR of
 1%:
@@ -213,22 +238,29 @@ ribo.urp <- ribo.tune$URPs
 ribo.urp.1 <- ribo.tune$URP.thresh
 
 fdrPlots(ribo.urp, threshold=ribo.urp.1)
+#> Warning: Using `size` aesthetic for lines was deprecated in ggplot2 3.4.0.
+#> ℹ Please use `linewidth` instead.
+#> ℹ The deprecated feature was likely used in the touchstone package.
+#>   Please report the issue to the authors.
+#> This warning is displayed once per session.
+#> Call `lifecycle::last_lifecycle_warnings()` to see where this warning was
+#> generated.
 ```
 
-<img src="man/figures/README-assign_svm-1.png" width="100%" />
+<img src="man/figures/README-assign_svm-1.png" alt="" width="100%" />
 
 ``` r
 calculateFDR(ribo.urp, threshold=ribo.urp.1)
-#> [1] 0.008908123
+#> [1] 0.009386701
 
 ribo.urp %>%
   countDecoys(threshold=ribo.urp.1)
 #> # A tibble: 2 × 4
 #> # Groups:   xlinkClass, Decoy [2]
-#>   xlinkClass   Decoy Target DoubleDecoy
-#>   <chr>        <int>  <int>       <int>
-#> 1 interProtein     7   1129          NA
-#> 2 intraProtein     4    373           1
+#>   xlinkClass   DoubleDecoy Decoy Target
+#>   <chr>              <int> <int>  <int>
+#> 1 interProtein           1     9   1174
+#> 2 intraProtein          NA     3    375
 
 svm.urp.inter <- ribo.urp %>% 
   countDecoys(threshold = ribo.urp.1) %>% 
@@ -236,7 +268,7 @@ svm.urp.inter <- ribo.urp %>%
   pull(Target)
 ```
 
-So, at 1% FDR for unique-residue-pairs, Touchstone finds 1129
+So, at 1% FDR for unique-residue-pairs, Touchstone finds 1174
 inter-protein cross-links. In contrast, we can ask Touchstone to
 classify the data using Prospector’s `Score.Diff` parameter:
 
@@ -247,11 +279,11 @@ ribo.urp.sd.1 <- findSeparateThresholds(ribo.urp, classifier="Score.Diff", targe
 fdrPlots(ribo.urp, threshold=ribo.urp.sd.1, classifier="Score.Diff")
 ```
 
-<img src="man/figures/README-assign_score_diff-1.png" width="100%" />
+<img src="man/figures/README-assign_score_diff-1.png" alt="" width="100%" />
 
 ``` r
 calculateFDR(ribo.urp, threshold=ribo.urp.sd.1, classifier="Score.Diff")
-#> [1] 0.01034188
+#> [1] 0.01150442
 
 ribo.urp %>%
   countDecoys(threshold=ribo.urp.sd.1, classifier="Score.Diff")
@@ -259,8 +291,8 @@ ribo.urp %>%
 #> # Groups:   xlinkClass, Decoy [2]
 #>   xlinkClass   Target Decoy
 #>   <chr>         <int> <int>
-#> 1 interProtein      4    NA
-#> 2 intraProtein    113     1
+#> 1 interProtein      5    NA
+#> 2 intraProtein    108     1
 
 sd.urp.inter <- ribo.urp %>% 
   countDecoys(threshold = ribo.urp.sd.1, classifier="Score.Diff") %>% 
@@ -268,8 +300,8 @@ sd.urp.inter <- ribo.urp %>%
   pull(Target)
 ```
 
-The Score.Diff classifier finds 4 crosslinked residue-pairs at 1% FDR
-compared to 1129 using the Touchstone scoring function.
+The Score.Diff classifier finds 5 crosslinked residue-pairs at 1% FDR
+compared to 1174 using the Touchstone scoring function.
 
 The modulefile categorizes the 80 or so ribosomal proteins to either the
 large (60S) or small (40S) subunits and specified the mapping between
@@ -280,7 +312,7 @@ distances) and assigns the modules.
 
 ``` r
 touchstone_example("rRibo_modfile_uniprot.txt")
-#> [1] "/Library/Frameworks/R.framework/Versions/4.4-arm64/Resources/library/touchstone/extdata/rRibo_modfile_uniprot.txt"
+#> [1] "/private/var/folders/jn/t8p7f7xx5qx8j0fc4rqc7j8r0000gn/T/RtmprUIuBJ/temp_libpath24ae44a58163/touchstone/extdata/rRibo_modfile_uniprot.txt"
 
 ribo.urp <- processModuleFile(ribo.urp, touchstone_example("rRibo_modfile_uniprot.txt"))
 #> Warning in bio3d::read.cif(pdbCode, verbose = F): beta version of `read.cif`.
@@ -293,7 +325,7 @@ ribo.urp %>%
   distancePlot2(threshold = 35)
 ```
 
-<img src="man/figures/README-module_load-1.png" width="100%" />
+<img src="man/figures/README-module_load-1.png" alt="" width="100%" />
 
 ``` r
 
@@ -301,8 +333,8 @@ ribo.urp %>%
   moduleTilePlot(threshold = ribo.urp.1)
 ```
 
-<img src="man/figures/README-module_load-2.png" width="100%" /> \# \#
-ribo.ppi %\>% \# classifyDataset(ribo.ppi.1) %\>% \#
+<img src="man/figures/README-module_load-2.png" alt="" width="100%" />
+\# \# ribo.ppi %\>% \# classifyDataset(ribo.ppi.1) %\>% \#
 ggplot(aes(wtCSM)) + \# geom_histogram(color=“white”) + \#
 facet_grid(rows = vars(Decoy2), scales=“free_y”) \# \# ribo.csm %\>% \#
 classifyDataset(ribo.ppi.1) %\>% \# calculatePairs() %\>% \#
@@ -328,7 +360,7 @@ ribo.urp_by_sec <- ribo.csm %>%
   )
 ```
 
-<img src="man/figures/README-grouping-1.png" width="100%" /><img src="man/figures/README-grouping-2.png" width="100%" /><img src="man/figures/README-grouping-3.png" width="100%" /><img src="man/figures/README-grouping-4.png" width="100%" />
+<img src="man/figures/README-grouping-1.png" alt="" width="100%" /><img src="man/figures/README-grouping-2.png" alt="" width="100%" /><img src="man/figures/README-grouping-3.png" alt="" width="100%" /><img src="man/figures/README-grouping-4.png" alt="" width="100%" />
 
 ``` r
 
@@ -343,7 +375,7 @@ sec_plot <- ribo.urp_by_sec %>%
 print(sec_plot)
 ```
 
-<img src="man/figures/README-grouping-5.png" width="100%" />
+<img src="man/figures/README-grouping-5.png" alt="" width="100%" />
 
 You’ll still need to render `README.Rmd` regularly, to keep `README.md`
 up-to-date. `devtools::build_readme()` is handy for this.
