@@ -83,9 +83,11 @@ trainCrosslinkScore <- function(datTab,
   tuned.parse <- tuned %>%
     purrr::imap_dfr(function(x,i) {
       data.frame("index" = i, "cost" = x$cost, "gamma" = x$gamma,
-                 "interInt" = x$interInt, "interHits" = x$interHits)
+                 "interInt" = x$interInt, "interHits" = x$interHits,
+                 "corScore" = x$corScore)
       }) %>%
-    arrange(desc(.data$interInt))
+    mutate(objFun = interInt * interHits * corScore) %>%
+    arrange(desc(.data$objFun))
   tuned.plot <- tuned %>%
     map_dfr(function(x) {
       df <- x$errorTable
@@ -103,29 +105,29 @@ trainCrosslinkScore <- function(datTab,
     geom_vline(xintercept = targetER, color="red") +
     ggplot2::scale_color_viridis_d(option="C") +
     facet_grid(rows=ggplot2::vars(gamma), scales="free_y")
-  bestModelIndex <- tuned.parse %>%
-    filter(dplyr::between(.data$interInt, 0.975 * max(.data$interInt, na.rm=T), max(.data$interInt, na.rm=T))) %>%
-    filter(.data$interHits == max(.data$interHits)) %>%
-    pull(.data$index)
-  suppressWarnings(plot(tuned.plot))
-  tuned[[length(tuned) + 1]] <- tuned.parse
-  tuned[[length(tuned) + 1]] <- bestModelIndex
-  bestModel <- tuned[[bestModelIndex]]
-  CSM.thresh <- findSeparateThresholdsModelled(bestModel$CSMs, targetER = targetER, scalingFactor = scalingFactor)
+  # bestModelIndex <- tuned.parse %>%
+  #   filter(dplyr::between(.data$interInt, 0.975 * max(.data$interInt, na.rm=T), max(.data$interInt, na.rm=T))) %>%
+  #   filter(.data$interHits == max(.data$interHits)) %>%
+  #   pull(.data$index)
+  # tuned[[length(tuned) + 1]] <- tuned.parse
+  # tuned[[length(tuned) + 1]] <- bestModelIndex
+  # bestModel <- tuned[[bestModelIndex]]
+  # CSM.thresh <- findSeparateThresholdsModelled(bestModel$CSMs, targetER = targetER, scalingFactor = scalingFactor)
   print(tuned.parse)
-  print(tuned.plot)
-  return(list(
-    "CSMs" = bestModel$CSMs,
-    "URPs" = bestModel$URPs,
-    "CSM.thresh" = CSM.thresh,
-    "URP.thresh" = bestModel$thresh,
-    "model.params" = list(
-      "kernel" = bestModel$kernel,
-      "cost" = bestModel$cost,
-      "gamma" = bestModel$gamma,
-      "sd.thresh" = bestModel$sd.thresh,
-      "features" = bestModel$params)
-  ))
+  suppressWarnings(plot(tuned.plot))
+  return(tuned)
+  # return(list(
+  #   "CSMs" = bestModel$CSMs,
+  #   "URPs" = bestModel$URPs,
+  #   "CSM.thresh" = CSM.thresh,
+  #   "URP.thresh" = bestModel$thresh,
+  #   "model.params" = list(
+  #     "kernel" = bestModel$kernel,
+  #     "cost" = bestModel$cost,
+  #     "gamma" = bestModel$gamma,
+  #     "sd.thresh" = bestModel$sd.thresh,
+  #     "features" = bestModel$params)
+  # ))
 }
 
 #' Performs hyperparamter optimziation for SVM model building by calling `tuneSVM.helper()`
@@ -214,6 +216,13 @@ tuneSVM.helper <- function(datTab,
     filter(dplyr::between(.data$fdr.inter, 0.01, 0.05)) %>%
     summarize(inter.sum = sum(.data$inter), n= n(), inter.int = .data$inter.sum / n) %>%
     pull(.data$inter.int)
+  top.inter.csms <- datTab.csm %>%
+    filter(Decoy=="Target",
+           xlinkClass=="interProtein") %>%
+    arrange(desc(Score.Diff))
+  top.inter.csms <- top.inter.csms %>%
+    slice(1:(nrow(top.inter.csms) / 10))
+  correlation_score <- 100 * cor(top.inter.csms$Score.Diff, top.inter.csms$SVM.score, method="spearman")
 
   list("CSMs" = datTab.csm,
        "URPs" = datTab.urp,
@@ -222,6 +231,7 @@ tuneSVM.helper <- function(datTab,
        "interHits" = interHits,
        "errorTable" = errorTable,
        "interInt" = inter.integral,
+       "corScore" = correlation_score,
        "cost" = cost,
        "gamma" = gamma,
        "kernel" = kernel,
@@ -489,7 +499,7 @@ buildClassifier <- function(datTab, params=params.best, preFilterER = NA,
                                                classifier = "Score.Diff",
                                                errorFUN = calculateFDR.unseparated,
                                                scalingFactor = scalingFactor)
-    datTab <- classifySeparateThresholds(datTab, preFilter.thresh, classifier=.data$Score.Diff)
+    datTab <- classifySeparateThresholds(datTab, preFilter.thresh, classifier="Score.Diff")
   }
   buildSVM(datTab, params, scoreName, sampleNo, ...)
 }

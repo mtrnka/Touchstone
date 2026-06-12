@@ -4,7 +4,7 @@
 \alias{classifyDataset}
 \title{Classify CLMS datasets}
 \usage{
-classifyDataset(datTab, threshold = list(), classifier = .data$SVM.score)
+classifyDataset(datTab, threshold = list(), classifier = "SVM.score")
 }
 \arguments{
 \item{datTab}{Parsed CLMS search results.}

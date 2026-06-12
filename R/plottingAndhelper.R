@@ -658,6 +658,12 @@ summarizeModuleData <- function(datTab, clearDiag = F, modOrder = NULL) {
   } else {
     if (!"other" %in% modOrder) {
       modOrder <- c(modOrder[1:length(modOrder)], "other")}
+    jntMods <- forcats::lvls_union(list(datTab$Module.1, datTab$Module.2))
+    modsToDrop <- jntMods[! jntMods %in% modOrder]
+    datTab <- datTab %>%
+      filter(Module.1 %in% modOrder, Module.2 %in% modOrder) %>%
+      mutate(Module.1 = forcats::fct_drop(Module.1, only=modsToDrop),
+             Module.2 = forcats::fct_drop(Module.2, only=modsToDrop))
     datTab[c("Module.1", "Module.2")] <- datTab %>%
       select(.data$Module.1, .data$Module.2) %>%
       as.list() %>%
@@ -760,10 +766,16 @@ clearAboveDiag <- function(sqMatrix) {
 #' @returns A data frame
 #' @export
 #'
-makeXiNetFile <- function(datTab) {
+makeXiNetFile <- function(datTab, flavor = "xiNet") {
   datTab <- datTab %>%
     select(.data$SVM.score, .data$Acc.1, .data$Acc.2, .data$XLink.AA.1, .data$XLink.AA.2)
-  names(datTab) <- c("Score", "Protein1", "Protein2", "LinkPos1", "LinkPos2")
+  if (flavor == "xiNet") {
+    names(datTab) <- c("Score", "Protein1", "Protein2", "LinkPos1", "LinkPos2")
+  } else if (flavor == "xiView") {
+    names(datTab) <- c("Score", "Protein1", "Protein2", "AbsPos1", "AbsPos2")
+  } else {
+    stop(paste("invalid option: '", flavor, "'. Flavor argument must be 'xiNet' or 'xiView'", sep = ""))
+  }
   return(datTab)
 }
 
@@ -843,18 +855,20 @@ moduleTilePlot <- function(datTab, threshold=-100, title="Module Plot", modBorde
   tabulatedMods <- classifyDataset(datTab, threshold) %>%
     summarizeModuleData(...)
   gg <- tabulatedMods %>%
-    tidyr::replace_na(list(counts=0)) %>%
+    tidyr::replace_na(list(counts=0.3)) %>%
     ggplot(aes(x=.data$Module.1, y=.data$Module.2, fill=.data$counts)) +
-    ggplot2::geom_tile(color="black") +
-    ggplot2::scale_fill_gradient(low="white", high="dodgerblue") +
+    ggplot2::geom_tile(color="lightgrey") +
+    ggplot2::scale_fill_gradient(low="white", high="darkblue",
+                                 trans = "log10") + #scales::pseudo_log_trans(sigma = 5)) +
     ggplot2::coord_fixed() +
-    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size=5),
+          axis.text.y = element_text(hjust = 1, vjust=0.5, size=5)) +
     ggtitle(title)
   if (!is.null(modBorders)) {
     modBorders = modBorders + 0.5
     gg <- gg +
-      geom_vline(xintercept = modBorders, size=1.1) +
-      geom_hline(yintercept = modBorders, size=1.1)
+      geom_vline(xintercept = modBorders) +
+      geom_hline(yintercept = modBorders)
   }
   gg <- gg +
     theme(axis.title.x=ggplot2::element_blank(),
@@ -874,32 +888,34 @@ moduleTilePlot <- function(datTab, threshold=-100, title="Module Plot", modBorde
 #' @returns A data frame
 #' @export
 getStringScores <- function(datTab, ncbiTaxonomyCode = NULL) {
-  primarySpecies <- datTab %>%
-    removeDecoys() %>%
-    filter(.data$Score.Diff > 5) %>%
-    count(.data$Species.1) %>%
-    arrange(desc(.data$n)) %>%
-    slice(1) %>%
-    pull(.data$Species.1)
-  tryCatch({
-    if (is.null(ncbiTaxonomyCode)) {
-      ncbiTaxonomyCode <- case_when(
-        primarySpecies == "HUMAN" ~ 9606,
-        primarySpecies == "MOUSE" ~ 10090,
-        primarySpecies == "RAT" ~ 10116,
-        primarySpecies == "ECOLI" ~ 511145,
-        primarySpecies == "YEAST" ~ 4932,
-        primarySpecies == "DROME" ~ 7227,
-        primarySpecies == "ARATH" ~ 3702)
-    }
-    message(stringr::str_c("detected organism: ", primarySpecies, "\tncbi code:", ncbiTaxonomyCode))
-  },
-  error = function(cond) {
-    message("Unknown species, please provide the ncbi taxonomy identifier")
-    message("Original error message:")
-    message(conditionMessage(cond))
-    NA
-  })
+  if (is.null(ncbiTaxonomyCode)) {
+    primarySpecies <- datTab %>%
+      removeDecoys() %>%
+      filter(.data$Score.Diff > 5) %>%
+      count(.data$Species.1) %>%
+      arrange(desc(.data$n)) %>%
+      slice(1) %>%
+      pull(.data$Species.1)
+    tryCatch({
+      if (is.null(ncbiTaxonomyCode)) {
+        ncbiTaxonomyCode <- case_when(
+          primarySpecies == "HUMAN" ~ 9606,
+          primarySpecies == "MOUSE" ~ 10090,
+          primarySpecies == "RAT" ~ 10116,
+          primarySpecies == "ECOLI" ~ 511145,
+          primarySpecies == "YEAST" ~ 4932,
+          primarySpecies == "DROME" ~ 7227,
+          primarySpecies == "ARATH" ~ 3702)
+      }
+      message(stringr::str_c("detected organism: ", primarySpecies, "\tncbi code:", ncbiTaxonomyCode))
+    },
+    error = function(cond) {
+      message("Unknown species, please provide the ncbi taxonomy identifier")
+      message("Original error message:")
+      message(conditionMessage(cond))
+      NA
+    })
+  }
   string_db <- STRINGdb::STRINGdb$new(version = "12.0", network_type="full", link_data="combined_only",
                                       species = ncbiTaxonomyCode, score_threshold = 0, input_directory = "")
   datTab.inter <- datTab %>%

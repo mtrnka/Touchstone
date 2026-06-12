@@ -77,7 +77,8 @@ readProspectorXLOutput <- function(inputFile, minPepLen = 3, minPepScore = 0, mi
   datTab <- calculatePercentMatched(datTab)
   datTab <- calculatePeptideLengths(datTab)
   datTab <- lengthFilter(datTab, minLen = minPepLen, maxLen = 40)
-  datTab <- scoreFilter(datTab, minScore = minPepScore)
+  if ("Sc.1" %in% names(datTab) & "Sc.1" %in% names(datTab)) {
+    datTab <- scoreFilter(datTab, minScore = minPepScore) }
   datTab <- datTab %>%
     filter(.data$Score.Diff >= minScoreDiff)
   datTab <- calculatePairs(datTab)
@@ -116,19 +117,36 @@ calculateDecoys <- function(datTab) {
 #' @return A data frame
 #' @export
 #'
-calculatePairs <- function(datTab){
+calculatePairs <- function(datTab, scalingFactor = the$decoyScalingFactor){
   datTab <- datTab %>%
-    mutate(Acc.1 = as.character(.data$Acc.1),
-           Acc.2 = as.character(.data$Acc.2))
-  datTab$xlinkedProtPair <- ifelse(
-    datTab$Decoy2 == "Decoy",
-    ifelse(datTab$Protein.1 <= datTab$Protein.2,
-           paste("decoy", datTab$Protein.1, datTab$Protein.2, sep="::"),
-           paste("decoy", datTab$Protein.2, datTab$Protein.1, sep="::")),
-    ifelse(datTab$Acc.1 <= datTab$Acc.2,
-           paste(datTab$Acc.1, datTab$Acc.2, sep="::"),
-           paste(datTab$Acc.2, datTab$Acc.1, sep="::"))
+    mutate(
+      Acc.1 = as.character(.data$Acc.1),
+      Acc.2 = as.character(.data$Acc.2),
+      Acc.1.w = case_when(
+        str_detect(Acc.1, "(^r[[:digit:]]_|^dec|^DECOY)") ~ str_c("decoy@", Protein.1),
+        T ~ Acc.1),
+      Acc.2.w = case_when(
+        str_detect(Acc.2, "(^r[[:digit:]]_|^dec|^DECOY)") ~ str_c("decoy@", Protein.2),
+        T ~ Acc.2)
+    )
+  datTab$xlinkedProtPair <- ifelse(datTab$Acc.1.w <= datTab$Acc.2.w,
+                                   paste(datTab$Acc.1.w, datTab$Acc.2.w, sep="::"),
+                                   paste(datTab$Acc.2.w, datTab$Acc.1.w, sep="::")
   )
+  datTab <- datTab %>%
+    select(-Acc.1.w, -Acc.2.w)
+# datTab <- datTab %>%
+  #   mutate(Acc.1 = as.character(.data$Acc.1),
+  #          Acc.2 = as.character(.data$Acc.2))
+  # datTab$xlinkedProtPair <- ifelse(
+  #   datTab$Decoy2 == "Decoy",
+  #   ifelse(datTab$Protein.1 <= datTab$Protein.2,
+  #          paste("decoy", datTab$Protein.1, datTab$Protein.2, sep="::"),
+  #          paste("decoy", datTab$Protein.2, datTab$Protein.1, sep="::")),
+  #   ifelse(datTab$Acc.1 <= datTab$Acc.2,
+  #          paste(datTab$Acc.1, datTab$Acc.2, sep="::"),
+  #          paste(datTab$Acc.2, datTab$Acc.1, sep="::"))
+  # )
   accs <- unique(c(datTab$Acc.1, datTab$Acc.2)) %>%
     stringr::str_sort()
   datTab <- datTab %>%
@@ -147,15 +165,19 @@ calculatePairs <- function(datTab){
   datTab$xlinkedPepPair <- as.factor(datTab$xlinkedPepPair)
   datTab <- datTab %>%
     add_count(.data$xlinkedResPair, name="numCSM") %>%
-    add_count(.data$xlinkedResPair, name="wtCSM", wt = .data$Score.Diff)
+    group_by(.data$xlinkedResPair) %>%
+    mutate(wtCSM = sum(Score.Diff >= 15)) %>%
+    ungroup()
   uniqueProtCount <- datTab %>%
-    select(.data$xlinkedProtPair, .data$xlinkedResPair, .data$Score.Diff) %>%
+    select("xlinkedProtPair", "xlinkedResPair", "Score.Diff") %>%
     group_by(.data$xlinkedProtPair, .data$xlinkedResPair) %>%
-    summarize(max.sd = max(.data$Score.Diff), .groups="drop") %>%
+    filter(.data$Score.Diff == max(.data$Score.Diff)) %>%
+    slice(1) %>%
     group_by(.data$xlinkedProtPair) %>%
     add_count(name = "numURP") %>%
-    add_count(name = "wtURP", wt=.data$max.sd) %>%
-    ungroup()
+    mutate(wtURP = sum(Score.Diff >= 15)) %>%
+    ungroup() %>%
+    select(-Score.Diff)
   datTab <- left_join(select(datTab, -any_of("numURP")), uniqueProtCount, by=c("xlinkedProtPair","xlinkedResPair"))
   if ("Module.1" %in% names(datTab) & "Module.2" %in% names(datTab)) {
     datTab <- datTab %>%
@@ -393,11 +415,11 @@ calculateDiagnosticPairsNonCleavable <- function(datTab) {
 getProductIonMatches <- function(msms.ions, pep.len) {
   # will break if pep.len > 99
   ions <- unlist(stringr::str_split(msms.ions, ";"))
-  n_indicies <- stringr::str_extract_all(ions, "(?<=^[bc][\\*\\#]?)([[0-9]]{1,2})") %>%
+  n_indicies <- stringr::str_extract_all(ions, "(?<=^[bc][\\*\\#]?)([[0-9]]{1,2})(?!\\-)") %>%
     unlist %>%
     unique %>%
     as.numeric
-  c_indicies <- stringr::str_extract_all(ions, "(?<=^[yz][\\*\\#]?)([[0-9]]{1,2})") %>%
+  c_indicies <- stringr::str_extract_all(ions, "(?<=^[yz][\\*\\#]?)([[0-9]]{1,2})(?!\\-)") %>%
     unlist %>%
     unique %>%
     as.numeric

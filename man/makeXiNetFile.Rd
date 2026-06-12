@@ -5,7 +5,7 @@
 \title{Puts crosslink results into XiNet format for visualization.
 see Combe et al, MCP 2015.}
 \usage{
-makeXiNetFile(datTab)
+makeXiNetFile(datTab, flavor = "xiNet")
 }
 \arguments{
 \item{datTab}{Parsed CLMS search results.}

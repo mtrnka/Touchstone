@@ -4,12 +4,14 @@
 \alias{countDecoys}
 \title{Convenience function to display the confusion matrix.}
 \usage{
-countDecoys(datTab, threshold = NULL)
+countDecoys(datTab, threshold = NULL, ...)
 }
 \arguments{
 \item{datTab}{Parsed CLMS search results.}
 
 \item{threshold}{A list or a numeric of length 1. List must contain either \code{globalThresh} or both \code{interThresh} and \code{intraThresh} numeric elements.}
+
+\item{...}{passed down to \code{classifyDataset()}}
 }
 \value{
 A data frame

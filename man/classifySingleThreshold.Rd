@@ -4,7 +4,7 @@
 \alias{classifySingleThreshold}
 \title{Classify CLMS dataset using a single threshold}
 \usage{
-classifySingleThreshold(datTab, singleThresh, classifier = .data$SVM.score)
+classifySingleThreshold(datTab, singleThresh, classifier = "SVM.score")
 }
 \arguments{
 \item{datTab}{Parsed CLMS search results.}

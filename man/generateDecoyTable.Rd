@@ -8,7 +8,8 @@ generateDecoyTable(
   datTab,
   targetER = 0.01,
   scalingFactor = the$decoyScalingFactor,
-  classifier = .data$SVM.score
+  classifier = .data$SVM.score,
+  plot = T
 )
 }
 \arguments{
@@ -19,6 +20,8 @@ generateDecoyTable(
 \item{scalingFactor}{An integer k. The multiple by which decoy DB is larger than target DB.}
 
 \item{classifier}{Column name in \code{datTab} used as the classifier to use to rank hits.}
+
+\item{plot}{Show plot?}
 }
 \value{
 A data frame

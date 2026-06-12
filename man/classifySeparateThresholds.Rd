@@ -4,11 +4,7 @@
 \alias{classifySeparateThresholds}
 \title{Classify CLMS datasets using separate interProtein and intraProtein thresholds}
 \usage{
-classifySeparateThresholds(
-  datTab,
-  separateThresh,
-  classifier = .data$SVM.score
-)
+classifySeparateThresholds(datTab, separateThresh, classifier = "SVM.score")
 }
 \arguments{
 \item{datTab}{Parsed CLMS search results.}

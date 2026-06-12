@@ -11,6 +11,7 @@ buildSVM(
   params = params.best,
   scoreName = "SVM.score",
   sampleNo = 20000,
+  showTab = F,
   ...
 )
 }
@@ -22,6 +23,8 @@ buildSVM(
 \item{scoreName}{Name for the new scoring function.}
 
 \item{sampleNo}{Size of the training dataset (integer).}
+
+\item{showTab}{print classificaiton table?}
 
 \item{...}{paramters passed to \code{e1071:svm()} function}
 }

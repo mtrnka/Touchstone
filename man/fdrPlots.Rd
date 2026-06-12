@@ -7,7 +7,7 @@
 fdrPlots(
   datTab,
   threshold = 0,
-  classifier = .data$SVM.score,
+  classifier = "SVM.score",
   scalingFactor = the$decoyScalingFactor,
   separateFacets = T,
   addLegend = T,

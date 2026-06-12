@@ -4,7 +4,7 @@
 \alias{calculatePairs}
 \title{Determine residue, peptide,and protein pairs}
 \usage{
-calculatePairs(datTab)
+calculatePairs(datTab, scalingFactor = the$decoyScalingFactor)
 }
 \arguments{
 \item{datTab}{Parsed CLMS search results.}

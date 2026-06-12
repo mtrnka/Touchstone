@@ -500,14 +500,30 @@ generateErrorTable.sep <- function(datTab,
 #'
 #' @param datTab Parsed CLMS search results.
 #' @param threshold A list or a numeric of length 1. List must contain either `globalThresh` or both `interThresh` and `intraThresh` numeric elements.
-#' @parm ... passed down to `classifyDataset()`
+#' @param ... passed down to `classifyDataset()`
 #' @returns A data frame
 #' @export
 countDecoys <- function(datTab, threshold=NULL, ...) {
   if (!is.null(threshold)) datTab <- classifyDataset(datTab, threshold, ...)
-  datTab %>%
-    deScaler(scalingFactor = the$decoyScalingFactor) %>%
-    group_by(.data$xlinkClass, .data$Decoy) %>%
+  if (the$decoyScalingFactor != 1) datTab <- deScaler(datTab, scalingFactor = the$decoyScalingFactor)
+  datTab.counted <- datTab %>%
+    group_by(.data$xlinkClass, .data$Decoy, .add=T) %>%
     count() %>%
-    pivot_wider(names_from="Decoy", values_from="n")
+    pivot_wider(names_from="Decoy", values_from="n", values_fill = 0)
+
+  # ensure expected columns exist (as wide columns) when absent
+  if (!"Decoy" %in% names(datTab.counted)) {
+    datTab.counted$Decoy <- NA_real_
+  }
+  if (!"DoubleDecoy" %in% names(datTab.counted)) {
+    datTab.counted$DoubleDecoy <- NA_real_
+  }
+  datTab.counted %>%
+    dplyr::mutate(
+      FDR = dplyr::case_when(
+        is.na(.data$Decoy) ~ NA_real_,
+        is.na(.data$DoubleDecoy) ~ round(100 * .data$Decoy / .data$Target, 2),
+        TRUE ~ round(100 * (.data$Decoy - .data$DoubleDecoy) / .data$Target, 2)
+      )
+    )
 }

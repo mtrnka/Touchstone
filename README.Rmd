@@ -21,18 +21,19 @@ knitr::opts_chunk$set(
 <!-- badges: start -->
 <!-- badges: end -->
 
-The Touchstone library exists to improve the functionality of [Protein Prospector](https://prospector.ucsf.edu/prospector/mshome.htm){target="_blank"} for Crosslinking
-Mass Spectrometry [@trnka_matching_2014]. Touchstone re-scores Prospector CLMS 
-results using an Support Vector Machine (SVM) classifier that does a better 
-job discriminating between correct and incorrect crosslinks than the Prospector scores. 
+The Touchstone library exists to extend and improve the functionality of [Protein Prospector](https://prospector.ucsf.edu/prospector/mshome.htm){target="_blank"} 
+for Crosslinking Mass Spectrometry [@trnka_matching_2014]. Touchstone re-scores 
+Prospector CLMS results using a Support Vector Machine (SVM) classifier that does a 
+better job discriminating between correct and incorrect crosslinks than the 
+internal Prospector scores. 
 
-It allows the user to classify datasets at a desired False Discovery Rate (FDR) 
-threshold at various summarization levels: Crosslinked Spectral Matches (CSMs), 
-Unique Residue Pairs (URPs), or Protein Pairs (PPs). Touchstone's FDR assessment
-are highly consistent with error rates measured assessed by various benchmarking
+Touchstone allows the user to classify datasets at a desired False Discovery Rate 
+(FDR) threshold at various summarization levels: Crosslinked Spectral Matches (CSMs), 
+Unique Residue Pairs (URPs), or Protein Pairs (PPs). Touchstone's FDR assessments
+are highly consistent with 'ground truth' error rates assessed by various benchmarking
 datasets [@beveridge_synthetic_2020; @matzinger_mimicked_2022; @fischer_assessment_2025].
 
-Additionally Touchstone contains features to help with dataset valdiation by 
+Additionally Touchstone contains features to help with dataset validiation by 
 measuring euclidean distances of crosslinks against high-res structure files, 
 or by querying [STRING-db](https://string-db.org/){target="_blank"} for String Scores of 
 putative protein interactions.
@@ -46,8 +47,8 @@ internal plotting functions for quantitating CSMs across proteins or modules.
 Touchstone is an R package that that I developed to address my own needs when 
 analyzing CLMS datasets searched with Prospector, as a project scientist supporting 
 numerous [projects](https://scholar.google.com/citations?hl=en&user=Gae1r_AAAAAJ&view_op=list_works&sortby=pubdate){target="_blank"} over the last decade or so. It is therefore a bit niche 
-and wasn't developed with a wide user base in mind. Nor am I a software developer. 
-So, it is rough around the edges. I am sharing it here because it might be 
+and wasn't developed with a wide user base in mind. Nor am I a software developer, 
+so it is rough around the edges. I am sharing it here because it might be 
 helpful to some users, but if you are looking for a smooth user experience that 
 doesn't require tinkering in R, you might be better served by other CLMS database 
 search and re-scoring software.
@@ -68,14 +69,17 @@ The rest of this mini-vignette will refer to running Touchstone inside of RStudi
 ## Installation
 
 The touchstone library is distributed on [GitHub](https://github.com/){target="_blank"}.
+This demo also uses the tidyverse ecosystem extensively.
 Install with:
 
 ```{r setup, results=FALSE, message=FALSE}
-# install.packages("devtools")
-devtools::install_github("mtrnka/Touchstone")
+demo_pkgs <- c("devtools", "tidyverse")
+pks_to_install <- demo_pkgs[!demo_pkgs %in% installed.packages()]
+if (length(pks_to_install) > 0) install.packages(pks_to_install)
+lapply(demo_pkgs, library, character.only = TRUE)
 
+devtools::install_github("mtrnka/Touchstone")
 library(touchstone)
-library(tidyverse)
 
 ```
 
@@ -83,14 +87,13 @@ library(tidyverse)
 
 80S ribosome was produced using a rabbit reticulocyte cell free expression system. 
 80S ribosomes were crosslinked with the cleavable reagent DSSO [@kao_development_2011].
-
-This ribosomal system for method development and optimization of CLMS 
-workflows. There is a high-res EM structure of the complex which can be helpful 
-in determining if the crosslinked are assigned correctly or not, [pdb:6HCJ](https://www.rcsb.org/structure/6hcj){target="_blank"}.
+I use this system for method development and optimization of CLMS  workflows. 
+There is a high-res EM structure of the complex which can be helpful in determining 
+if the crosslinked are assigned correctly or not, [pdb:6HCJ](https://www.rcsb.org/structure/6hcj){target="_blank"}.
 
 ![cryoEM structure of Rabbit 80S ribosome](https://cdn.rcsb.org/images/structures/6hcj_assembly-1.jpeg){width=30%}
 
-The example dataset included with Touchstone is from 80S sample, split across 4
+The example dataset included with Touchstone is from the 80S sample, split across 4
 SEC fractions, each analyzed using a stepped-HCD MS2 acquisition cycle. Data were
 searched for crosslinks using Protein Prospector program *Batch Tag*, against a 
 protien database containing 77 ribosome sequences alongside a decoy database 
@@ -103,8 +106,9 @@ in the report. The recommended Search Compare Paramters are inlcuded as an examp
 ```{r search_compare_params, results=FALSE}
 
 # install.packages("jsonlite")
-touchstone_example("tstoneMS2.4.json") %>% 
+tstone_sc_params <- touchstone_example("tstoneMS2.4.json") %>% 
   jsonlite::read_json()
+tstone_sc_params
 
 ```
 
@@ -116,17 +120,36 @@ ribosome search usesa decoy databse in which each decoy protein is 10x longer th
 the corresponding target. If you don't use a value that matches the databse search
 conditions everything will be wrong. Set the appropriate value for the scaling factor:
 
-```{r scaling factor, messge=FALSE}
-
+```{r scaling_factor, messge=FALSE}
 setDecoyScalingFactor(10)
 ```
 
 After setting the decoy scaling factor (if needed), read the *Search Compare* output
-into Touchstone:
+into Touchstone restricting results to peptides with at least 4 residues:
 
 ```{r load_data, message=FALSE}
-pathToDemoFile <- touchstone_example("rRibo_DSSO_sthcd_scOut.txt")
+pathToDemoFile <- touchstone_example("M6.sthcd_scout.txt")
 ribo.xl <- readProspectorXLOutput(pathToDemoFile, minPepLen = 4, minIons = 0)
+```
+
+The crosslinked peptides were fractionated by size-exclusion chromatography (SEC) and
+two technical replicates of each fraction were run. The code below, assigns the SEC fraction
+and replicate numbers to the data:
+
+```{r assign_fractions, message=FALSE}
+ribo.fractions <- sort(unique(ribo.xl$Fraction))
+ribo.xl <- ribo.xl %>%
+  mutate(
+    sample = case_when(
+      Fraction %in% ribo.fractions[1:4] ~ "rep 1",
+      Fraction %in% ribo.fractions[5:8] ~ "rep 2"
+    ),
+    sec_fraction = case_when(
+      Fraction %in% ribo.fractions[c(1,5)] ~ "A6",
+      Fraction %in% ribo.fractions[c(2,6)] ~ "A5",
+      Fraction %in% ribo.fractions[c(3,7)] ~ "A4",
+      Fraction %in% ribo.fractions[c(4,8)] ~ "A3",
+    ))
 
 ```
 
@@ -140,65 +163,75 @@ hyperparameter values, and prefilter values selected in the final model.
 
 ```{r tuning, messge=FALSE}
 ribo.tune <- trainCrosslinkScore(ribo.xl, targetER = 0.01)
+```
 
-ribo.tune
+We can now look at URPs classified by touchstone at the target FDR of 1%:
+
+```{r assign_svm, message=FALSE}
+
+names(ribo.tune)
 
 ribo.csm <- ribo.tune$CSMs
 ribo.csm.1 <- ribo.tune$CSM.thresh
 
-# ribo.csm <- ribo.csm %>%
-#   processModuleFile("inst/extdata/rRibo_newMod_uniprot.txt")
 ribo.urp <- ribo.tune$URPs
 ribo.urp.1 <- ribo.tune$URP.thresh
-
-# ribo.ppi <- bestProtPair(ribo.csm)
-# ribo.ppi.1 <- findSeparateThresholdsModelled(ribo.ppi, targetER = 0.01)
 
 fdrPlots(ribo.urp, threshold=ribo.urp.1)
 calculateFDR(ribo.urp, threshold=ribo.urp.1)
 
 ribo.urp %>%
-  countDecoys(threshold=ribo.urp.1) %>%
-  flextable::flextable()
+  countDecoys(threshold=ribo.urp.1)
 
-ribo.urp.sd.1 <- findSeparateThresholds(ribo.urp, targetER=0.01)
+svm.urp.inter <- ribo.urp %>% 
+  countDecoys(threshold = ribo.urp.1) %>% 
+  filter(xlinkClass=="interProtein") %>% 
+  pull(Target)
+```
+
+So, at 1% FDR for unique-residue-pairs, Touchstone finds `r svm.urp.inter` inter-protein
+cross-links.  In contrast, we can ask Touchstone to classify the data using Prospector's
+`Score.Diff` parameter:
+
+```{r assign_score_diff, message=FALSE}
+
+ribo.urp.sd.1 <- findSeparateThresholds(ribo.urp, classifier="Score.Diff", targetER=0.01)
 
 fdrPlots(ribo.urp, threshold=ribo.urp.sd.1, classifier="Score.Diff")
-calculateFDR(ribo.urp, threshold=ribo.urp.sd.1)
+calculateFDR(ribo.urp, threshold=ribo.urp.sd.1, classifier="Score.Diff")
 
 ribo.urp %>%
-  countDecoys(threshold = ribo.urp.sd.1, classifier="Score.Diff") %>%
-  flextable::flextable()
+  countDecoys(threshold=ribo.urp.sd.1, classifier="Score.Diff")
+
+sd.urp.inter <- ribo.urp %>% 
+  countDecoys(threshold = ribo.urp.sd.1, classifier="Score.Diff") %>% 
+  filter(xlinkClass=="interProtein") %>% 
+  pull(Target)
+
+```
+
+The Score.Diff classifier finds `r sd.urp.inter` crosslinked residue-pairs at
+1% FDR compared to `r svm.urp.inter` using the Touchstone scoring function.
+
+The modulefile categorizes the 80 or so ribosomal proteins to either the large 
+(60S) or small (40S) subunits and specified the mapping between the accession numbers
+and the pdb file. The `processModuleFile()` function reads the modulefile, downloads the
+referenced pdb files, measured euclidean distances (as well as samples random lys-lys distances)
+and assigns the modules.
 
 
+```{r module_load, message=FALSE}
+touchstone_example("rRibo_modfile_uniprot.txt")
 
-# fdrPlots(ribo.urp, ribo.urp.1)
-# calculateFDR(ribo.urp, ribo.urp.1)
-# 
-# fdrPlots(ribo2.urp, ribo2.urp.1)
-# calculateFDR(ribo2.urp, ribo2.urp.1)
-# 
-# fdrPlots(ribo.urp.lin, ribo.urp.lin.1)
-# calculateFDR(ribo.urp.lin, ribo.urp.lin.1)
-# 
-# ribo.urp %>%
-#   classifyDataset(ribo.urp.1) %>%
-#   countDecoys()
-# 
-# ribo2.urp %>%
-#   classifyDataset(ribo2.urp.1) %>%
-#   countDecoys()
-# 
-# ribo.urp.lin %>%
-#   classifyDataset(ribo.urp.lin.1) %>%
-#   countDecoys()
-# 
-# ribo.urp %>%
-#   classifyDataset(ribo.urp.1) %>%
-#   distancePlot2(threshold = 35)
-# 
-# fdrPlots(ribo.ppi, ribo.ppi.1)
-# calculateFDR(ribo.ppi, ribo.ppi.1)
+ribo.urp <- processModuleFile(ribo.urp, touchstone_example("rRibo_modfile_uniprot.txt"))
+ribo.urp %>% 
+  classifyDataset(ribo.urp.1) %>%
+  distancePlot2(threshold = 35)
+
+ribo.urp %>% 
+  moduleTilePlot(threshold = ribo.urp.1)
+
+```
 # 
 # ribo.ppi %>%
 #   classifyDataset(ribo.ppi.1) %>%
@@ -214,11 +247,34 @@ ribo.urp %>%
 #   geom_histogram(color="white") +
 #   facet_grid(rows = vars(Decoy2), scales="free_y")
 
-```
-The modulefile categorizes the 80 or so ribosomal proteins to either the large 
-(60S) or small (40S) subunits and specified the mapping between the accession numbers
-and the pdb file.
 
+Let's say you wanted to look at unique residue pairs within each SEC fraction.
+You would need to group the original data by SEC fraction and then calculated residue
+pairs on the grouped data.  By nesting the data frame you can systematically calculate
+the 1% FDR score thresholds for each fraction and then make a dataframe with the classified
+data. An example of how one might do this is shown 
+below.
+
+```{r grouping, message=FALSE}
+ribo.urp_by_sec <- ribo.csm %>%
+  group_by(sec_fraction) %>%
+  bestResPair(retainGroups = T) %>%
+  nest() %>%
+  mutate(
+    thresh.1 = map(data, function(x) findSeparateThresholdsModelled(x)),
+    classified.urp = map2(data, thresh.1, function(x, y) {classifyDataset(x, y) %>% deScaler()})
+  )
+
+sec_plot <- ribo.urp_by_sec %>%
+  select(sec_fraction, classified.urp) %>%
+  unnest(cols = classified.urp) %>%
+  ggplot(aes(x=sec_fraction, fill=Decoy)) +
+  geom_bar(position=position_dodge2(preserve = "single")) +
+    scale_fill_viridis_d(option = "C") +
+  theme_bw()
+
+print(sec_plot)
+```
 
 
 You'll still need to render `README.Rmd` regularly, to keep `README.md` up-to-date. `devtools::build_readme()` is handy for this.

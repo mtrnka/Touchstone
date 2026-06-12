@@ -7,7 +7,7 @@
 calculateFDR(
   datTab,
   threshold = list(intraThresh = -100, interThresh = -100),
-  classifier = .data$SVM.score,
+  classifier = "SVM.score",
   scalingFactor = the$decoyScalingFactor
 )
 }

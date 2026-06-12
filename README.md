@@ -9,23 +9,24 @@ more for Protein Prospector crosslink searches
 <!-- badges: start -->
 <!-- badges: end -->
 
-The Touchstone library exists to improve the functionality of
+The Touchstone library exists to extend and improve the functionality of
 <a href="https://prospector.ucsf.edu/prospector/mshome.htm"
 target="_blank">Protein Prospector</a> for Crosslinking Mass
 Spectrometry (Trnka et al. 2014). Touchstone re-scores Prospector CLMS
-results using an Support Vector Machine (SVM) classifier that does a
+results using a Support Vector Machine (SVM) classifier that does a
 better job discriminating between correct and incorrect crosslinks than
-the Prospector scores.
+the internal Prospector scores.
 
-It allows the user to classify datasets at a desired False Discovery
-Rate (FDR) threshold at various summarization levels: Crosslinked
-Spectral Matches (CSMs), Unique Residue Pairs (URPs), or Protein Pairs
-(PPs). Touchstone’s FDR assessment are highly consistent with error
-rates measured assessed by various benchmarking datasets (Beveridge et
-al. 2020; Matzinger et al. 2022; Fischer et al. 2025).
+Touchstone allows the user to classify datasets at a desired False
+Discovery Rate (FDR) threshold at various summarization levels:
+Crosslinked Spectral Matches (CSMs), Unique Residue Pairs (URPs), or
+Protein Pairs (PPs). Touchstone’s FDR assessments are highly consistent
+with ‘ground truth’ error rates assessed by various benchmarking
+datasets (Beveridge et al. 2020; Matzinger et al. 2022; Fischer et al.
+2025).
 
 Additionally Touchstone contains features to help with dataset
-valdiation by measuring euclidean distances of crosslinks against
+validiation by measuring euclidean distances of crosslinks against
 high-res structure files, or by querying
 <a href="https://string-db.org/" target="_blank">STRING-db</a> for
 String Scores of putative protein interactions.
@@ -44,7 +45,7 @@ scientist supporting numerous <a
 href="https://scholar.google.com/citations?hl=en&amp;user=Gae1r_AAAAAJ&amp;view_op=list_works&amp;sortby=pubdate"
 target="_blank">projects</a> over the last decade or so. It is therefore
 a bit niche and wasn’t developed with a wide user base in mind. Nor am I
-a software developer. So, it is rough around the edges. I am sharing it
+a software developer, so it is rough around the edges. I am sharing it
 here because it might be helpful to some users, but if you are looking
 for a smooth user experience that doesn’t require tinkering in R, you
 might be better served by other CLMS database search and re-scoring
@@ -74,26 +75,27 @@ of RStudio.
 ## Installation
 
 The touchstone library is distributed on
-<a href="https://github.com/" target="_blank">GitHub</a>. Install with:
+<a href="https://github.com/" target="_blank">GitHub</a>. This demo also
+uses the tidyverse ecosystem extensively. Install with:
 
 ``` r
-# install.packages("devtools")
-devtools::install_github("mtrnka/Touchstone")
+demo_pkgs <- c("devtools", "tidyverse")
+pks_to_install <- demo_pkgs[!demo_pkgs %in% installed.packages()]
+if (length(pks_to_install) > 0) install.packages(pks_to_install)
+lapply(demo_pkgs, library, character.only = TRUE)
 
+devtools::install_github("mtrnka/Touchstone")
 library(touchstone)
-library(tidyverse)
 ```
 
 ## 80S Ribosome data acquired by MS2.HCD.
 
 80S ribosome was produced using a rabbit reticulocyte cell free
 expression system. 80S ribosomes were crosslinked with the cleavable
-reagent DSSO (Kao et al. 2011).
-
-This ribosomal system for method development and optimization of CLMS
-workflows. There is a high-res EM structure of the complex which can be
-helpful in determining if the crosslinked are assigned correctly or not,
-<a href="https://www.rcsb.org/structure/6hcj"
+reagent DSSO (Kao et al. 2011). I use this system for method development
+and optimization of CLMS workflows. There is a high-res EM structure of
+the complex which can be helpful in determining if the crosslinked are
+assigned correctly or not, <a href="https://www.rcsb.org/structure/6hcj"
 target="_blank">pdb:6HCJ</a>.
 
 <figure>
@@ -103,8 +105,8 @@ style="width:30.0%" alt="cryoEM structure of Rabbit 80S ribosome" />
 ribosome</figcaption>
 </figure>
 
-The example dataset included with Touchstone is from 80S sample, split
-across 4 SEC fractions, each analyzed using a stepped-HCD MS2
+The example dataset included with Touchstone is from the 80S sample,
+split across 4 SEC fractions, each analyzed using a stepped-HCD MS2
 acquisition cycle. Data were searched for crosslinks using Protein
 Prospector program *Batch Tag*, against a protien database containing 77
 ribosome sequences alongside a decoy database where each of the 77
@@ -117,8 +119,9 @@ inlcuded as an example file:
 ``` r
 
 # install.packages("jsonlite")
-touchstone_example("tstoneMS2.4.json") %>% 
+tstone_sc_params <- touchstone_example("tstoneMS2.4.json") %>% 
   jsonlite::read_json()
+tstone_sc_params
 ```
 
 For CLMS of defined protein compleses with 2-200 subunits, I typically
@@ -132,7 +135,6 @@ that matches the databse search conditions everything will be wrong. Set
 the appropriate value for the scaling factor:
 
 ``` r
-
 setDecoyScalingFactor(10)
 ```
 
@@ -140,8 +142,29 @@ After setting the decoy scaling factor (if needed), read the *Search
 Compare* output into Touchstone:
 
 ``` r
-pathToDemoFile <- touchstone_example("rRibo_DSSO_sthcd_scOut.txt")
+pathToDemoFile <- touchstone_example("M6.sthcd_scout.txt")
 ribo.xl <- readProspectorXLOutput(pathToDemoFile, minPepLen = 4, minIons = 0)
+```
+
+The crosslinked peptides were fractionated by size-exclusion
+chromatography (SEC) and two technical replicates of each fraction were
+run. The code below, assigns the SEC fraction and replicate numbers to
+the data:
+
+``` r
+ribo.fractions <- sort(unique(ribo.xl$Fraction))
+ribo.xl <- ribo.xl %>%
+  mutate(
+    sample = case_when(
+      Fraction %in% ribo.fractions[1:4] ~ "rep 1",
+      Fraction %in% ribo.fractions[5:8] ~ "rep 2"
+    ),
+    sec_fraction = case_when(
+      Fraction %in% ribo.fractions[c(1,5)] ~ "A6",
+      Fraction %in% ribo.fractions[c(2,6)] ~ "A5",
+      Fraction %in% ribo.fractions[c(3,7)] ~ "A4",
+      Fraction %in% ribo.fractions[c(4,8)] ~ "A3",
+    ))
 ```
 
 The main Touchstone function is `trainCrosslinkScore()`. Running this
@@ -155,207 +178,172 @@ in the final model.
 
 ``` r
 ribo.tune <- trainCrosslinkScore(ribo.xl, targetER = 0.01)
-#>    index cost gamma  interInt interHits
-#> 1      9   10  0.10 1532.4000       441
-#> 2      8    5  0.10 1484.7500       382
-#> 3      6   10  0.05 1476.5385       414
-#> 4      5    5  0.05 1317.1613       378
-#> 5      7    1  0.10 1311.9756       366
-#> 6      4    1  0.05 1068.8378       448
-#> 7      3   10  0.01  960.0000       472
-#> 8      2    5  0.01  799.3200       448
-#> 9      1    1  0.01  596.8750       407
-#> 10    10    1 23.00  517.7143       341
-#> 11    11    5 23.00  510.8000       313
-#> 12    12   10 23.00  485.8333       327
 ```
 
-<img src="man/figures/README-tuning-3.png" width="100%" /><img src="man/figures/README-tuning-4.png" width="100%" />
+<img src="man/figures/README-tuning-1.png" width="100%" /><img src="man/figures/README-tuning-2.png" width="100%" />
+
+    #>    index cost gamma  interInt interHits
+    #> 1      6   10  0.05 1713.7292      1129
+    #> 2      8    5  0.10 1678.8571      1059
+    #> 3      9   10  0.10 1676.2727      1088
+    #> 4      7    1  0.10 1657.7660       990
+    #> 5      5    5  0.05 1651.2800      1019
+    #> 6      4    1  0.05 1537.7708       823
+    #> 7      3   10  0.01 1359.5500       552
+    #> 8      2    5  0.01 1292.1622       478
+    #> 9     10    1 23.00  813.4211       299
+    #> 10    12   10 23.00  739.2353       259
+    #> 11    11    5 23.00  716.3125       248
+    #> 12     1    1  0.01  699.5000       268
+
+<img src="man/figures/README-tuning-3.png" width="100%" />
+
+We can now look at URPs classified by touchstone at the target FDR of
+1%:
 
 ``` r
 
-ribo.tune
-#> $CSMs
-#> # A tibble: 77,657 × 78
-#>    `m/z`     z Match.Int Base.Int Perc.Bond.Cleavage.1 Perc.Bond.Cleavage.2
-#>    <dbl> <dbl>     <dbl>    <dbl>                <dbl>                <dbl>
-#>  1 1123.     4      33.6    18622                 30.4                 35.3
-#>  2 1479.     4      72.1    28673                 65.2                 45.5
-#>  3 1479.     4      72.1    11208                 60.9                 42.4
-#>  4 1184.     5      61.2     5892                 34.8                 27.3
-#>  5 1479.     4      69.3    14587                 56.5                 45.5
-#>  6  849.     4      66.7    17697                 76.5                 55.6
-#>  7  849.     4      45.1    24733                 52.9                 55.6
-#>  8 1059.     5      16.9   183351                 43.8                 14.8
-#>  9 1059.     5      17.4    64635                 37.5                 11.1
-#> 10 1059.     5      17.5    99308                 50                   11.1
-#> # ℹ 77,647 more rows
-#> # ℹ 72 more variables: MSMS.Ions.1 <chr>, MSMS.Ions.2 <chr>, MSMS.MZs.1 <chr>,
-#> #   MSMS.MZs.2 <chr>, MSMS.Intensities.1 <chr>, MSMS.Intensities.2 <chr>,
-#> #   MSMS.Errors.1 <chr>, MSMS.Errors.2 <chr>, ppm <dbl>, DB.Peptide.1 <chr>,
-#> #   Peptide.1 <chr>, DB.Peptide.2 <chr>, Peptide.2 <chr>,
-#> #   Elemental.Composition <chr>, Fraction <chr>, RT <dbl>, Spectrum <dbl>,
-#> #   MSMS.Info <dbl>, Num.Unmat <dbl>, Num.Pks <dbl>, Score <dbl>, …
-#> 
-#> $URPs
-#> # A tibble: 56,997 × 78
-#>    `m/z`     z Match.Int Base.Int Perc.Bond.Cleavage.1 Perc.Bond.Cleavage.2
-#>    <dbl> <dbl>     <dbl>    <dbl>                <dbl>                <dbl>
-#>  1  701.     3      16       2620                 12.5                 12.5
-#>  2  645.     3      15.9   146918                 44.4                 40  
-#>  3  796.     4      28      37495                 28.6                 14.3
-#>  4  545.     3      17.1    27454                100                   25  
-#>  5  861.     3      11      71313                 50                   28.6
-#>  6 1028.     3      25.7    70951                 62.5                 28.6
-#>  7 1100.     3      43.6    98351                 57.1                 25  
-#>  8 1076.     5      15      24563                 11.8                 28.6
-#>  9  888.     3      39.3    28547                100                   42.9
-#> 10  732.     3      42.8    46226                100                   33.3
-#> # ℹ 56,987 more rows
-#> # ℹ 72 more variables: MSMS.Ions.1 <chr>, MSMS.Ions.2 <chr>, MSMS.MZs.1 <chr>,
-#> #   MSMS.MZs.2 <chr>, MSMS.Intensities.1 <chr>, MSMS.Intensities.2 <chr>,
-#> #   MSMS.Errors.1 <chr>, MSMS.Errors.2 <chr>, ppm <dbl>, DB.Peptide.1 <chr>,
-#> #   Peptide.1 <chr>, DB.Peptide.2 <chr>, Peptide.2 <chr>,
-#> #   Elemental.Composition <chr>, Fraction <chr>, RT <dbl>, Spectrum <dbl>,
-#> #   MSMS.Info <dbl>, Num.Unmat <dbl>, Num.Pks <dbl>, Score <dbl>, …
-#> 
-#> $CSM.thresh
-#> $CSM.thresh$intraThresh
-#> [1] -5
-#> 
-#> $CSM.thresh$interThresh
-#> [1] 1.174
-#> 
-#> 
-#> $URP.thresh
-#> $URP.thresh$intraThresh
-#> [1] 0.16
-#> 
-#> $URP.thresh$interThresh
-#> [1] 1.718
-#> 
-#> 
-#> $model.params
-#> $model.params$kernel
-#> [1] "radial"
-#> 
-#> $model.params$cost
-#> [1] 10
-#> 
-#> $model.params$gamma
-#> [1] 0.1
-#> 
-#> $model.params$sd.thresh
-#> [1] 0
-#> 
-#> $model.params$features
-#> [1] "Score.Diff"           "percMatched"          "massError"           
-#> [4] "z"                    "wtURP"                "wtCSM"               
-#> [7] "xlinkClass"           "Perc.Bond.Cleavage.1" "Perc.Bond.Cleavage.2"
+names(ribo.tune)
+#> [1] "CSMs"         "URPs"         "CSM.thresh"   "URP.thresh"   "model.params"
 
 ribo.csm <- ribo.tune$CSMs
 ribo.csm.1 <- ribo.tune$CSM.thresh
 
-# ribo.csm <- ribo.csm %>%
-#   processModuleFile("inst/extdata/rRibo_newMod_uniprot.txt")
 ribo.urp <- ribo.tune$URPs
 ribo.urp.1 <- ribo.tune$URP.thresh
-
-# ribo.ppi <- bestProtPair(ribo.csm)
-# ribo.ppi.1 <- findSeparateThresholdsModelled(ribo.ppi, targetER = 0.01)
 
 fdrPlots(ribo.urp, threshold=ribo.urp.1)
 ```
 
-<img src="man/figures/README-tuning-5.png" width="100%" />
+<img src="man/figures/README-assign_svm-1.png" width="100%" />
 
 ``` r
 calculateFDR(ribo.urp, threshold=ribo.urp.1)
-#> threshold must either be a single, numeric value or a list
-#>                              with named interThresh and intraThresh valuesError in `ensym()`:
-#> ! Can't convert to a symbol.
-#> [1] 0.5157351
+#> [1] 0.008908123
 
 ribo.urp %>%
-  countDecoys(threshold=ribo.urp.1) %>%
-  flextable::flextable()
+  countDecoys(threshold=ribo.urp.1)
+#> # A tibble: 2 × 4
+#> # Groups:   xlinkClass, Decoy [2]
+#>   xlinkClass   Decoy Target DoubleDecoy
+#>   <chr>        <int>  <int>       <int>
+#> 1 interProtein     7   1129          NA
+#> 2 intraProtein     4    373           1
+
+svm.urp.inter <- ribo.urp %>% 
+  countDecoys(threshold = ribo.urp.1) %>% 
+  filter(xlinkClass=="interProtein") %>% 
+  pull(Target)
 ```
 
-<img src="man/figures/README-tuning-1.png" width="100%" />
+So, at 1% FDR for unique-residue-pairs, Touchstone finds 1129
+inter-protein cross-links. In contrast, we can ask Touchstone to
+classify the data using Prospector’s `Score.Diff` parameter:
 
 ``` r
 
-ribo.urp.sd.1 <- findSeparateThresholds(ribo.urp, targetER=0.01)
+ribo.urp.sd.1 <- findSeparateThresholds(ribo.urp, classifier="Score.Diff", targetER=0.01)
 
 fdrPlots(ribo.urp, threshold=ribo.urp.sd.1, classifier="Score.Diff")
 ```
 
-<img src="man/figures/README-tuning-7.png" width="100%" />
+<img src="man/figures/README-assign_score_diff-1.png" width="100%" />
 
 ``` r
-calculateFDR(ribo.urp, threshold=ribo.urp.sd.1)
-#> threshold must either be a single, numeric value or a list
-#>                              with named interThresh and intraThresh valuesError in `ensym()`:
-#> ! Can't convert to a symbol.
-#> [1] 0.5157351
+calculateFDR(ribo.urp, threshold=ribo.urp.sd.1, classifier="Score.Diff")
+#> [1] 0.01034188
 
 ribo.urp %>%
-  countDecoys(threshold = ribo.urp.sd.1, classifier="Score.Diff") %>%
-  flextable::flextable()
+  countDecoys(threshold=ribo.urp.sd.1, classifier="Score.Diff")
+#> # A tibble: 2 × 3
+#> # Groups:   xlinkClass, Decoy [2]
+#>   xlinkClass   Target Decoy
+#>   <chr>         <int> <int>
+#> 1 interProtein      4    NA
+#> 2 intraProtein    113     1
+
+sd.urp.inter <- ribo.urp %>% 
+  countDecoys(threshold = ribo.urp.sd.1, classifier="Score.Diff") %>% 
+  filter(xlinkClass=="interProtein") %>% 
+  pull(Target)
 ```
 
-<img src="man/figures/README-tuning-2.png" width="100%" />
-
-``` r
-
-
-
-# fdrPlots(ribo.urp, ribo.urp.1)
-# calculateFDR(ribo.urp, ribo.urp.1)
-# 
-# fdrPlots(ribo2.urp, ribo2.urp.1)
-# calculateFDR(ribo2.urp, ribo2.urp.1)
-# 
-# fdrPlots(ribo.urp.lin, ribo.urp.lin.1)
-# calculateFDR(ribo.urp.lin, ribo.urp.lin.1)
-# 
-# ribo.urp %>%
-#   classifyDataset(ribo.urp.1) %>%
-#   countDecoys()
-# 
-# ribo2.urp %>%
-#   classifyDataset(ribo2.urp.1) %>%
-#   countDecoys()
-# 
-# ribo.urp.lin %>%
-#   classifyDataset(ribo.urp.lin.1) %>%
-#   countDecoys()
-# 
-# ribo.urp %>%
-#   classifyDataset(ribo.urp.1) %>%
-#   distancePlot2(threshold = 35)
-# 
-# fdrPlots(ribo.ppi, ribo.ppi.1)
-# calculateFDR(ribo.ppi, ribo.ppi.1)
-# 
-# ribo.ppi %>%
-#   classifyDataset(ribo.ppi.1) %>%
-#   ggplot(aes(wtCSM)) +
-#   geom_histogram(color="white") +
-#   facet_grid(rows = vars(Decoy2), scales="free_y")
-# 
-# ribo.csm %>%
-#   classifyDataset(ribo.ppi.1) %>%
-#   calculatePairs() %>%
-#   bestProtPair() %>%
-#   ggplot(aes(wtCSM)) +
-#   geom_histogram(color="white") +
-#   facet_grid(rows = vars(Decoy2), scales="free_y")
-```
+The Score.Diff classifier finds 4 crosslinked residue-pairs at 1% FDR
+compared to 1129 using the Touchstone scoring function.
 
 The modulefile categorizes the 80 or so ribosomal proteins to either the
 large (60S) or small (40S) subunits and specified the mapping between
-the accession numbers and the pdb file.
+the accession numbers and the pdb file. The `processModuleFile()`
+function reads the modulefile, downloads the referenced pdb files,
+measured euclidean distances (as well as samples random lys-lys
+distances) and assigns the modules.
+
+``` r
+touchstone_example("rRibo_modfile_uniprot.txt")
+#> [1] "/Library/Frameworks/R.framework/Versions/4.4-arm64/Resources/library/touchstone/extdata/rRibo_modfile_uniprot.txt"
+
+ribo.urp <- processModuleFile(ribo.urp, touchstone_example("rRibo_modfile_uniprot.txt"))
+#> Warning in bio3d::read.cif(pdbCode, verbose = F): beta version of `read.cif`.
+#> please use with caution
+#> Warning in bio3d::read.cif(pdbCode, verbose = F): helix/sheet records could not
+#> be parsed
+#>   Note: Accessing on-line CIF file
+ribo.urp %>% 
+  classifyDataset(ribo.urp.1) %>%
+  distancePlot2(threshold = 35)
+```
+
+<img src="man/figures/README-module_load-1.png" width="100%" />
+
+``` r
+
+ribo.urp %>% 
+  moduleTilePlot(threshold = ribo.urp.1)
+```
+
+<img src="man/figures/README-module_load-2.png" width="100%" /> \# \#
+ribo.ppi %\>% \# classifyDataset(ribo.ppi.1) %\>% \#
+ggplot(aes(wtCSM)) + \# geom_histogram(color=“white”) + \#
+facet_grid(rows = vars(Decoy2), scales=“free_y”) \# \# ribo.csm %\>% \#
+classifyDataset(ribo.ppi.1) %\>% \# calculatePairs() %\>% \#
+bestProtPair() %\>% \# ggplot(aes(wtCSM)) + \#
+geom_histogram(color=“white”) + \# facet_grid(rows = vars(Decoy2),
+scales=“free_y”)
+
+Let’s say you wanted to look at unique residue pairs within each SEC
+fraction. You would need to group the original data by SEC fraction and
+then calculated residue pairs on the grouped data. By nesting the data
+frame you can systematically calculate the 1% FDR score thresholds for
+each fraction and then make a dataframe with the classified data. An
+example of how one might do this is shown below.
+
+``` r
+ribo.urp_by_sec <- ribo.csm %>%
+  group_by(sec_fraction) %>%
+  bestResPair(retainGroups = T) %>%
+  nest() %>%
+  mutate(
+    thresh.1 = map(data, function(x) findSeparateThresholdsModelled(x)),
+    classified.urp = map2(data, thresh.1, function(x, y) {classifyDataset(x, y) %>% deScaler()})
+  )
+```
+
+<img src="man/figures/README-grouping-1.png" width="100%" /><img src="man/figures/README-grouping-2.png" width="100%" /><img src="man/figures/README-grouping-3.png" width="100%" /><img src="man/figures/README-grouping-4.png" width="100%" />
+
+``` r
+
+sec_plot <- ribo.urp_by_sec %>%
+  select(sec_fraction, classified.urp) %>%
+  unnest(cols = classified.urp) %>%
+  ggplot(aes(x=sec_fraction, fill=Decoy)) +
+  geom_bar(position=position_dodge2(preserve = "single")) +
+    scale_fill_viridis_d(option = "C") +
+  theme_bw()
+
+print(sec_plot)
+```
+
+<img src="man/figures/README-grouping-5.png" width="100%" />
 
 You’ll still need to render `README.Rmd` regularly, to keep `README.md`
 up-to-date. `devtools::build_readme()` is handy for this.

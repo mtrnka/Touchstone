@@ -12,6 +12,28 @@ params.noPercBond <- c("Score.Diff", "percMatched", "massError",
 params.best.nop <- c("Score.Diff", "percMatched", "massError",
                      "z", "wtCSM")
 
+params.best.classic <- c("Score.Diff", "percMatched", "massError",
+                         "z", "numURP", "numCSM", "xlinkClass")
+
+params.test <- c("Score.Diff", "percMatched", "massError",
+                 "z", "numCSM", "numURP", "xlinkClass",
+                 "Perc.Bond.Cleavage.1", "Perc.Bond.Cleavage.2")
+
+params.test.1 <- c("Score.Diff", "percMatched", "massError",
+                 "z", "numCSM", "xlinkClass",
+                 "Perc.Bond.Cleavage.1", "Perc.Bond.Cleavage.2")
+
+params.test.2 <- c("Score.Diff", "percMatched", "massError",
+                 "z", "wtCSM", "xlinkClass",
+                 "Perc.Bond.Cleavage.1", "Perc.Bond.Cleavage.2")
+
+params.test.3 <- c("Score.Diff", "percMatched", "massError",
+                   "z", "numURP", "xlinkClass",
+                   "Perc.Bond.Cleavage.1", "Perc.Bond.Cleavage.2")
+
+params.test.4 <- c("Score.Diff", "percMatched", "massError",
+                   "z", "wtCSM", "wtURP", "xlinkClass")
+
 atomic.weight.da <- list(
 # Values from:
 # https://www.ciaaw.org/atomic-weights.htm
