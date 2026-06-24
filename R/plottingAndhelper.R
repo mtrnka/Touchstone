@@ -441,15 +441,15 @@ fdrPlots <- function(datTab,
   if (is(threshold, "list")) {
     if (!is.null(threshold$interThresh) & !is.null(threshold$intraThresh)) {
       fdr.plot <- fdr.plot +
-        geom_vline(data=filter(datTab, .data$xlinkClass=="intraProtein"), aes(xintercept=threshold$intraThresh), linetype = "dashed", col="green", size = 1.2) +
-        geom_vline(data=filter(datTab, .data$xlinkClass=="interProtein"), aes(xintercept=threshold$interThresh), linetype = "dashed", col="green", size = 1.2)
+        geom_vline(data=filter(datTab, .data$xlinkClass=="intraProtein"), aes(xintercept=threshold$intraThresh), linetype = "dashed", col="green", linewidth = 1.2) +
+        geom_vline(data=filter(datTab, .data$xlinkClass=="interProtein"), aes(xintercept=threshold$interThresh), linetype = "dashed", col="green", linewidth = 1.2)
     } else if (!is.null(threshold$globalThresh)) {
       fdr.plot <- fdr.plot +
-        geom_vline(aes(xintercept=threshold$globalThresh), linetype = "dashed", col="green", size = 1.2)
+        geom_vline(aes(xintercept=threshold$globalThresh), linetype = "dashed", col="green", linewidth = 1.2)
     }
   } else {
     fdr.plot <- fdr.plot +
-      geom_vline(xintercept = as.numeric(threshold), linetype = "dashed", col="green", size = 1.2)
+      geom_vline(xintercept = as.numeric(threshold), linetype = "dashed", col="green", linewidth = 1.2)
   }
   if (separateFacets) {
     fdr.plot <- fdr.plot +
