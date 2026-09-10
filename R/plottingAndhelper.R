@@ -392,7 +392,7 @@ deScaler <- function(datTab, scalingFactor = the$decoyScalingFactor) {
   datTab.t <- datTab %>% filter(.data$Decoy == "Target")
   datTab.d <- datTab %>% filter(.data$Decoy == "Decoy")
   datTab.dd <- datTab %>% filter(.data$Decoy == "DoubleDecoy")
-  dt.adjustment <- (nrow(datTab.d) / scalingFactor) - 2*(nrow(datTab.dd) / scalingFactor**2)
+  dt.adjustment <- (nrow(datTab.d) / scalingFactor)# - 2*(nrow(datTab.dd) / scalingFactor**2)
   dd.adjustment <- nrow(datTab.dd) / scalingFactor**2
   if (dt.adjustment < 0) {dt.adjustment <- 0}
   datTab.d <- datTab.d %>% slice(sample(nrow(datTab.d), dt.adjustment))
@@ -428,13 +428,16 @@ fdrPlots <- function(datTab,
   maxValue = ceiling(maxValue)
   stepSize = mmax((maxValue - minValue) / 100, 0.25)
   datTab <- deScaler(datTab, scalingFactor = scalingFactor)
-  decCounts <- datTab %>% tally(.data$Decoy == "Decoy") %>% pull(.data$n)
-  doubleCounts <- datTab %>% tally(.data$Decoy == "DoubleDecoy") %>% pull(.data$n)
+  decCounts <- sum(datTab$Decoy == "Decoy", na.rm = TRUE)
+  doubleCounts <- sum(datTab$Decoy == "DoubleDecoy", na.rm = TRUE)
+  decoy.levels <- if (doubleCounts > decCounts) {
+    c("Target", "DoubleDecoy", "Decoy")
+  } else {
+    c("Target", "Decoy", "DoubleDecoy")
+  }
   datTab <- datTab %>%
-    mutate(Decoy = case_when(
-      doubleCounts > decCounts ~ factor(Decoy, levels = c("Target", "DoubleDecoy", "Decoy")),
-      doubleCounts <= decCounts ~ factor(Decoy, levels = c("Target", "Decoy", "DoubleDecoy"))
-    ))
+    mutate(Decoy = factor(as.character(.data$Decoy), levels = decoy.levels))
+
   fdr.plot <- datTab %>%
     ggplot(aes(x= {{ classifier }}, fill=.data$Decoy, alpha=.data$xlinkClass)) +
     geom_histogram(col="black", binwidth = stepSize, position="identity")

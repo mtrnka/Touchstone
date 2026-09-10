@@ -7,10 +7,12 @@ the$decoyScalingFactor = 1
 params.best <- c("Score.Diff", "percMatched", "massError",
                  "z", "wtURP", "wtCSM", "xlinkClass",
                  "Perc.Bond.Cleavage.1", "Perc.Bond.Cleavage.2")
+
 params.noPercBond <- c("Score.Diff", "percMatched", "massError",
                  "z", "wtURP", "wtCSM", "xlinkClass")
+
 params.best.nop <- c("Score.Diff", "percMatched", "massError",
-                     "z", "wtCSM")
+                     "z", "wtCSM", "Perc.Bond.Cleavage.1", "Perc.Bond.Cleavage.2")
 
 params.best.classic <- c("Score.Diff", "percMatched", "massError",
                          "z", "numURP", "numCSM", "xlinkClass")

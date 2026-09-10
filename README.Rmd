@@ -72,7 +72,7 @@ The touchstone library is distributed on [GitHub](https://github.com/){target="_
 This demo also uses the tidyverse ecosystem extensively.
 Install with:
 
-```{r setup, results=FALSE, message=FALSE}
+```{r setup, echo=TRUE, results='hide', message=FALSE, warning=FALSE}
 demo_pkgs <- c("devtools", "tidyverse")
 pks_to_install <- demo_pkgs[!demo_pkgs %in% installed.packages()]
 if (length(pks_to_install) > 0) install.packages(pks_to_install)
@@ -103,7 +103,7 @@ sequences.
 Touchstone expects unclassified search results with certain parameters included 
 in the report. The recommended Search Compare Paramters are inlcuded as an example file:
 
-```{r search_compare_params, results=FALSE}
+```{r search_compare_params, results='hide', message=FALSE, warning=FALSE}
 
 # install.packages("jsonlite")
 tstone_sc_params <- touchstone_example("tstoneMS2.4.json") %>% 
@@ -120,14 +120,14 @@ ribosome search usesa decoy databse in which each decoy protein is 10x longer th
 the corresponding target. If you don't use a value that matches the databse search
 conditions everything will be wrong. Set the appropriate value for the scaling factor:
 
-```{r scaling_factor, messge=FALSE}
+```{r scaling_factor, message=FALSE, warning=FALSE}
 setDecoyScalingFactor(10)
 ```
 
 After setting the decoy scaling factor (if needed), read the *Search Compare* output
 into Touchstone restricting results to peptides with at least 4 residues:
 
-```{r load_data, message=FALSE}
+```{r load_data, message=FALSE, warning=FALSE}
 pathToDemoFile <- touchstone_example("M6.sthcd_scout.txt")
 ribo.xl <- readProspectorXLOutput(pathToDemoFile, minPepLen = 4, minIons = 0)
 ```
@@ -136,7 +136,7 @@ The crosslinked peptides were fractionated by size-exclusion chromatography (SEC
 two technical replicates of each fraction were run. The code below, assigns the SEC fraction
 and replicate numbers to the data:
 
-```{r assign_fractions, message=FALSE}
+```{r assign_fractions, message=FALSE, warning=FALSE}
 ribo.fractions <- sort(unique(ribo.xl$Fraction))
 ribo.xl <- ribo.xl %>%
   mutate(

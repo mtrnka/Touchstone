@@ -26,52 +26,87 @@ trainCrosslinkScore <- function(datTab,
                                 sampleNo = 20000,
                                 cost_values = c(1, 5, 10),
                                 gamma_values = c(0.01, 0.05, 0.1),
-                                sd_values = c(0,5,10,15,20)
-) {
-  datTab <- ungroup(datTab)
+                                sd_values = c(0,5,10,15,20)) {
+  datTab <- dplyr::ungroup(datTab)
+
   # feature selection
   plausibleHits <- datTab %>%
-    filter(.data$Decoy == "Target", .data$Score.Diff > 10, .data$numCSM > 1, .data$xlinkClass == "intraProtein") %>%
-    group_by(.data$Acc.1) %>%
-    count %>%
-    arrange(desc(.data$n))
+    filter(.data$Decoy == "Target",
+           .data$Score.Diff > 10,
+           .data$numCSM > 1,
+           .data$xlinkClass == "intraProtein") %>%
+    dplyr::count(.data$Acc.1, name = "n") %>%
+    dplyr::arrange(desc(.data$n))
+
   if (is.null(params)) {
-    params <- case_when(
-      nrow(plausibleHits) <= 1 ~ list(params.best.nop),
-      plausibleHits$n[1] > 100 * plausibleHits$n[2] ~ list(params.best.nop),
+    params <- dplyr::case_when(
+      nrow(plausibleHits) <= 50 ~ list(params.best.nop),
+      nrow(plausibleHits) >= 2 &&
+        plausibleHits$n[1] > 100 * plausibleHits$n[2] ~ list(params.best.nop),
       !("Perc.Bond.Cleavage.1" %in% names(datTab)) ~ list(params.noPercBond),
       TRUE ~ list(params.best)
-    ) %>% unlist()
+    ) %>%
+      unlist()
   }
+
   # prefiltering
-  if (length(unique(pull(removeDecoys(datTab), .data$Acc.1, .data$Acc.2))) > 1000) {
-    preFiltered.dts <- sd_values %>%
-      purrr::map(function(sd) {
-        datTab.pre <- datTab %>%
-          filter(.data$Score.Diff >= sd)
-        tuneSVM.helper(datTab=datTab.pre,
-                       targetER=targetER,
-                       params=params,
-                       scoreName=scoreName,
-                       scalingFactor = scalingFactor,
-                       sampleNo = sampleNo,
-                       cost=10, gamma=0.1, kernel="radial")
-      })
-    preFilter.summary <- preFiltered.dts %>%
-      purrr::imap_dfr(function(x, i) {
-        data.frame("index" = i, "sd.thresh" = x$sd.thresh,
-                    "interInt" = x$interInt, "interHits" = x$interHits)
-        }) %>%
-      arrange(desc(.data$interInt))
-    bestPreFilter <- preFilter.summary %>%
-      filter(dplyr::between(.data$interInt, 0.95 * max(.data$interInt), max(.data$interInt))) %>%
-      pull(.data$sd.thresh) %>%
-      min()
-    #    return(list(preFiltered.dts, preFilter.summary, bestPreFilter))
-    datTab <- datTab %>%
-      filter(.data$Score.Diff >= bestPreFilter)
+  nProteinPairs <- removeDecoys(datTab) %>%
+    dplyr::distinct(.data$Acc.1, .data$Acc.2) %>%
+    nrow()
+
+  preFilter.summary <- NULL
+  bestPreFilter <- min(sd_values, na.rm = TRUE)
+
+  if (nProteinPairs > 1000) {
+    prefilter <- chooseScoreDiffPrefilter(
+      datTab = datTab,
+      sd_values = sd_values,
+      targetER = targetER,
+      params = params,
+      scoreName = scoreName,
+      scalingFactor = scalingFactor,
+      sampleNo = sampleNo,
+      cost = 10,
+      gamma = 0.1,
+      kernel = "radial",
+      fallback.threshold = min(sd_values, na.rm = TRUE)
+    )
+
+    datTab <- prefilter$datTab
+    preFilter.summary <- prefilter$preFilter.summary
+    bestPreFilter <- prefilter$bestPreFilter
   }
+
+# if (length(unique(pull(removeDecoys(datTab), .data$Acc.1, .data$Acc.2))) > 1000) {
+#     preFiltered.dts <- sd_values %>%
+#       purrr::map(function(sd) {
+#         datTab.pre <- datTab %>%
+#           filter(.data$Score.Diff >= sd)
+#         message("Score Diff Pre-filtering optimization...")
+#         tuneSVM.helper(datTab=datTab.pre,
+#                        targetER=targetER,
+#                        params=params,
+#                        scoreName=scoreName,
+#                        scalingFactor = scalingFactor,
+#                        sampleNo = sampleNo,
+#                        cost=10, gamma=0.1, kernel="radial")
+#       })
+#     preFilter.summary <- preFiltered.dts %>%
+#       purrr::imap_dfr(function(x, i) {
+#         data.frame("index" = i, "sd.thresh" = x$sd.thresh,
+#                     "interInt" = x$interInt, "interHits" = x$interHits)
+#         }) %>%
+#       arrange(desc(.data$interInt))
+#     bestPreFilter <- preFilter.summary %>%
+#       filter(dplyr::between(.data$interInt, 0.95 * max(.data$interInt), max(.data$interInt))) %>%
+#       pull(.data$sd.thresh) %>%
+#       min()
+#        return(list(preFiltered.dts, preFilter.summary, bestPreFilter))
+#     datTab <- datTab %>%
+#       filter(.data$Score.Diff >= bestPreFilter)
+
   # hyperparamater optimziation
+  message("Hyperparamter optimization...")
   tuned <- tuneSVM(datTab,
                    params=params,
                    scoreName=scoreName,
@@ -85,7 +120,7 @@ trainCrosslinkScore <- function(datTab,
       data.frame("index" = i, "cost" = x$cost, "gamma" = x$gamma,
                  "interInt" = x$interInt, "interHits" = x$interHits,
                  "corScore" = x$corScore)
-      }) %>%
+    }) %>%
     mutate(objFun = interInt * interHits * corScore) %>%
     arrange(desc(.data$objFun))
   tuned.plot <- tuned %>%
@@ -105,30 +140,259 @@ trainCrosslinkScore <- function(datTab,
     geom_vline(xintercept = targetER, color="red") +
     ggplot2::scale_color_viridis_d(option="C") +
     facet_grid(rows=ggplot2::vars(gamma), scales="free_y")
-  # bestModelIndex <- tuned.parse %>%
-  #   filter(dplyr::between(.data$interInt, 0.975 * max(.data$interInt, na.rm=T), max(.data$interInt, na.rm=T))) %>%
-  #   filter(.data$interHits == max(.data$interHits)) %>%
-  #   pull(.data$index)
-  # tuned[[length(tuned) + 1]] <- tuned.parse
-  # tuned[[length(tuned) + 1]] <- bestModelIndex
-  # bestModel <- tuned[[bestModelIndex]]
-  # CSM.thresh <- findSeparateThresholdsModelled(bestModel$CSMs, targetER = targetER, scalingFactor = scalingFactor)
+  # # bestModelIndex <- tuned.parse %>%
+  # #   filter(dplyr::between(.data$interInt, 0.975 * max(.data$interInt, na.rm=T), max(.data$interInt, na.rm=T))) %>%
+  # #   filter(.data$interHits == max(.data$interHits)) %>%
+  # #   pull(.data$index)
+  # # tuned[[length(tuned) + 1]] <- tuned.parse
+  # # tuned[[length(tuned) + 1]] <- bestModelIndex
+  # # bestModel <- tuned[[bestModelIndex]]
+  # # CSM.thresh <- findSeparateThresholdsModelled(bestModel$CSMs, targetER = targetER, scalingFactor = scalingFactor)
   print(tuned.parse)
-  suppressWarnings(plot(tuned.plot))
+  if (!is.null(tuned.plot)) {
+    suppressWarnings(print(tuned.plot))
+  }
   return(tuned)
-  # return(list(
-  #   "CSMs" = bestModel$CSMs,
-  #   "URPs" = bestModel$URPs,
-  #   "CSM.thresh" = CSM.thresh,
-  #   "URP.thresh" = bestModel$thresh,
-  #   "model.params" = list(
-  #     "kernel" = bestModel$kernel,
-  #     "cost" = bestModel$cost,
-  #     "gamma" = bestModel$gamma,
-  #     "sd.thresh" = bestModel$sd.thresh,
-  #     "features" = bestModel$params)
-  # ))
+  # # return(list(
+  # #   "CSMs" = bestModel$CSMs,
+  # #   "URPs" = bestModel$URPs,
+  # #   "CSM.thresh" = CSM.thresh,
+  # #   "URP.thresh" = bestModel$thresh,
+  # #   "model.params" = list(
+  # #     "kernel" = bestModel$kernel,
+  # #     "cost" = bestModel$cost,
+  # #     "gamma" = bestModel$gamma,
+  # #     "sd.thresh" = bestModel$sd.thresh,
+  # #     "features" = bestModel$params)
+  # # ))
 }
+
+as_scalar_numeric <- function(x, default = NA_real_) {
+  if (is.null(x) || length(x) == 0) {
+    return(default)
+  }
+
+  x <- suppressWarnings(as.numeric(x[1]))
+
+  if (is.na(x) || is.nan(x) || !is.finite(x)) {
+    return(default)
+  }
+
+  x
+}
+
+chooseScoreDiffPrefilter <- function(datTab,
+                                     sd_values = c(0, 5, 10, 15, 20),
+                                     targetER = 0.01,
+                                     params,
+                                     scoreName = "SVM.score",
+                                     scalingFactor = the$decoyScalingFactor,
+                                     sampleNo = 20000,
+                                     cost = 10,
+                                     gamma = 0.1,
+                                     kernel = "radial",
+                                     class.col = NULL,
+                                     target.label = "Target",
+                                     min.total = 500,
+                                     min.target = 50,
+                                     min.decoy = 50,
+                                     fallback.threshold = NULL) {
+
+  if (!"Score.Diff" %in% names(datTab)) {
+    stop("datTab must contain a Score.Diff column.", call. = FALSE)
+  }
+
+  if (is.null(class.col)) {
+    class.col <- dplyr::case_when(
+      "Decoy2" %in% names(datTab) ~ "Decoy2",
+      TRUE ~ NA_character_
+    )
+  }
+
+  if (is.na(class.col) || !class.col %in% names(datTab)) {
+    stop("Could not find a class column. Expected Decoy2", call. = FALSE)
+  }
+
+  if (is.null(fallback.threshold)) {
+    fallback.threshold <- min(sd_values, na.rm = TRUE)
+  }
+
+  sd_values <- sort(unique(sd_values))
+  sd_values <- sd_values[!is.na(sd_values)]
+
+  if (length(sd_values) == 0) {
+    warning("No valid sd_values supplied; using fallback threshold.", call. = FALSE)
+    sd_values <- fallback.threshold
+  }
+
+  message("Score.Diff prefilter optimization...")
+
+  prefilter.results <- purrr::map(sd_values, function(sd) {
+    datTab.pre <- datTab %>%
+      dplyr::filter(.data$Score.Diff >= sd)
+    class.values <- datTab.pre[[class.col]]
+    n.total <- nrow(datTab.pre)
+    n.target <- sum(class.values == target.label, na.rm = TRUE)
+    n.decoy <- sum(class.values != target.label & !is.na(class.values))
+    n.inter.target <- if ("xlinkClass" %in% names(datTab.pre)) {
+      sum(
+        datTab.pre[[class.col]] == target.label &
+          datTab.pre$xlinkClass == "interProtein",
+        na.rm = TRUE
+      )
+    } else {
+      NA_integer_
+    }
+
+    valid.training <- n.total >= min.total &&
+      n.target >= min.target &&
+      n.decoy >= min.decoy
+
+    if (!valid.training) {
+      return(list(
+        result = NULL,
+        summary = tibble::tibble(
+          sd.thresh = sd,
+          n.total = n.total,
+          n.target = n.target,
+          n.decoy = n.decoy,
+          n.inter.target = n.inter.target,
+          valid.training = FALSE,
+          valid.result = FALSE,
+          interInt = NA_real_,
+          interHits = NA_real_,
+          error = "Insufficient training data after Score.Diff prefilter"
+        )
+      ))
+    }
+
+    fit <- tryCatch(
+      {
+        tuneSVM.helper(
+          datTab = datTab.pre,
+          targetER = targetER,
+          params = params,
+          scoreName = scoreName,
+          scalingFactor = scalingFactor,
+          sampleNo = sampleNo,
+          cost = cost,
+          gamma = gamma,
+          kernel = kernel
+        )
+      },
+      error = function(e) e
+    )
+
+    if (inherits(fit, "error")) {
+      return(list(
+        result = NULL,
+        summary = tibble::tibble(
+          sd.thresh = sd,
+          n.total = n.total,
+          n.target = n.target,
+          n.decoy = n.decoy,
+          n.inter.target = n.inter.target,
+          valid.training = TRUE,
+          valid.result = FALSE,
+          interInt = NA_real_,
+          interHits = NA_real_,
+          error = conditionMessage(fit)
+        )
+      ))
+    }
+
+    interInt <- as_scalar_numeric(fit$interInt)
+    interHits <- as_scalar_numeric(fit$interHits)
+
+    valid.result <- is.finite(interInt) && !is.na(interInt)
+
+    list(
+      result = fit,
+      summary = tibble::tibble(
+        sd.thresh = sd,
+        n.total = n.total,
+        n.target = n.target,
+        n.decoy = n.decoy,
+        n.inter.target = n.inter.target,
+        valid.training = TRUE,
+        valid.result = valid.result,
+        interInt = interInt,
+        interHits = interHits,
+        error = NA_character_
+      )
+    )
+  })
+
+  preFilter.summary <- purrr::map_dfr(prefilter.results, "summary") %>%
+    dplyr::arrange(.data$sd.thresh)
+
+  valid.results <- preFilter.summary %>%
+    dplyr::filter(.data$valid.training, .data$valid.result)
+
+  positive.inter <- valid.results %>%
+    dplyr::filter(.data$interInt > 0)
+
+  if (nrow(positive.inter) > 0) {
+    max.inter <- max(positive.inter$interInt, na.rm = TRUE)
+
+    bestPreFilter <- positive.inter %>%
+      dplyr::filter(.data$interInt >= 0.95 * max.inter) %>%
+      dplyr::summarise(best = min(.data$sd.thresh, na.rm = TRUE)) %>%
+      dplyr::pull(.data$best)
+
+  } else if (nrow(valid.results) > 0) {
+    warning(
+      "No Score.Diff prefilter produced positive interprotein recovery. ",
+      "Using the mildest valid Score.Diff prefilter.",
+      call. = FALSE
+    )
+
+    bestPreFilter <- min(valid.results$sd.thresh, na.rm = TRUE)
+
+  } else {
+    warning(
+      "No Score.Diff prefilter produced a valid model. ",
+      "Using fallback Score.Diff threshold: ",
+      fallback.threshold,
+      call. = FALSE
+    )
+
+    bestPreFilter <- fallback.threshold
+  }
+
+  if (!is.finite(bestPreFilter)) {
+    warning(
+      "Selected Score.Diff prefilter was not finite. ",
+      "Using fallback Score.Diff threshold: ",
+      fallback.threshold,
+      call. = FALSE
+    )
+
+    bestPreFilter <- fallback.threshold
+  }
+
+  datTab.filtered <- datTab %>%
+    dplyr::filter(.data$Score.Diff >= bestPreFilter)
+
+  if (nrow(datTab.filtered) == 0) {
+    warning(
+      "Selected Score.Diff prefilter produced an empty data set. ",
+      "Using unfiltered data.",
+      call. = FALSE
+    )
+
+    bestPreFilter <- -Inf
+    datTab.filtered <- datTab
+  }
+
+  list(
+    datTab = datTab.filtered,
+    bestPreFilter = bestPreFilter,
+    preFilter.summary = preFilter.summary,
+    prefilter.results = prefilter.results
+  )
+}
+
 
 #' Performs hyperparamter optimziation for SVM model building by calling `tuneSVM.helper()`
 #' across the specified grid of cost and gamma values.
@@ -221,7 +485,7 @@ tuneSVM.helper <- function(datTab,
            xlinkClass=="interProtein") %>%
     arrange(desc(Score.Diff))
   top.inter.csms <- top.inter.csms %>%
-    slice(1:(nrow(top.inter.csms) / 10))
+    slice(1:(nrow(top.inter.csms) / 2))
   correlation_score <- 100 * cor(top.inter.csms$Score.Diff, top.inter.csms$SVM.score, method="spearman")
 
   list("CSMs" = datTab.csm,
@@ -277,6 +541,20 @@ buildSVM <- function(datTab,
   wghts.1["Decoy"] <- table(test.1$Decoy2)["Target"] / sum(table(test.1$Decoy2),na.rm=T)
   wghts.2["Target"] <- table(test.2$Decoy2)["Decoy"] / sum(table(test.2$Decoy2),na.rm=T)
   wghts.2["Decoy"] <- table(test.2$Decoy2)["Target"] / sum(table(test.2$Decoy2),na.rm=T)
+
+  diagnoseSVMdata(
+    train.df = train.1,
+    response.col = "Decoy2",
+    feature.cols = params
+  )
+
+  diagnoseSVMdata(
+    train.df = train.2,
+    response.col = "Decoy2",
+    feature.cols = params
+  )
+
+
   fit.1 <- e1071::svm(train.1$Decoy2 ~.,
                       subset(train.1, select=params),
                       class.weights=wghts.1,
@@ -335,7 +613,7 @@ trainClassifier <- function(datTab, params=NULL, scoreName="SVM.score",
     arrange(desc(.data$n))
   if (is.null(params)) {
     params <- case_when(
-      nrow(plausibleHits) <= 1 ~ list(params.best.nop),
+      nrow(plausibleHits) <= 50 ~ list(params.best.nop),
       plausibleHits$n[1] > 100 * plausibleHits$n[2] ~ list(params.best.nop),
       TRUE ~ list(params.best)
     ) %>% unlist()
@@ -502,5 +780,109 @@ buildClassifier <- function(datTab, params=params.best, preFilterER = NA,
     datTab <- classifySeparateThresholds(datTab, preFilter.thresh, classifier="Score.Diff")
   }
   buildSVM(datTab, params, scoreName, sampleNo, ...)
+}
+
+
+diagnoseSVMdata <- function(train.df, response.col, feature.cols) {
+  if (!response.col %in% colnames(train.df)) {
+    stop("response.col not found: ", response.col, call. = FALSE)
+  }
+
+  missing.features <- setdiff(feature.cols, colnames(train.df))
+  if (length(missing.features) > 0) {
+    stop(
+      "Feature column(s) not found: ",
+      paste(missing.features, collapse = ", "),
+      call. = FALSE
+    )
+  }
+
+  message("\nOutcome counts:")
+  print(table(train.df[[response.col]], useNA = "ifany"))
+
+  y.n <- length(unique(stats::na.omit(train.df[[response.col]])))
+  if (y.n < 2) {
+    message("PROBLEM: response variable has fewer than 2 non-NA classes.")
+  }
+
+  feature.summary <- purrr::map_dfr(feature.cols, function(col) {
+    x <- train.df[[col]]
+
+    tibble::tibble(
+      feature = col,
+      class = paste(class(x), collapse = "/"),
+      n_non_missing = sum(!is.na(x)),
+      n_unique_non_missing = length(unique(stats::na.omit(x))),
+      n_levels_after_factor = if (is.factor(x) || is.character(x)) {
+        nlevels(factor(stats::na.omit(x)))
+      } else {
+        NA_integer_
+      },
+      example_values = paste(utils::head(unique(stats::na.omit(x)), 5), collapse = ", ")
+    )
+  })
+
+  message("\nFeature summary:")
+  print(feature.summary, n = Inf)
+
+  bad.categorical <- feature.summary |>
+    dplyr::filter(
+      .data$class %in% c("factor", "character") |
+        stringr::str_detect(.data$class, "factor|character")
+    ) |>
+    dplyr::filter(.data$n_levels_after_factor < 2)
+
+  bad.constant <- feature.summary |>
+    dplyr::filter(.data$n_unique_non_missing < 2)
+
+  if (nrow(bad.categorical) > 0) {
+    message("\nCategorical predictors with fewer than 2 levels:")
+    print(bad.categorical, n = Inf)
+  }
+
+  if (nrow(bad.constant) > 0) {
+    message("\nConstant / all-NA predictors:")
+    print(bad.constant, n = Inf)
+  }
+
+  invisible(feature.summary)
+}
+
+
+check_training_df <- function(df, stage, response_col, feature_cols = NULL) {
+  message("\n--- ", stage, " ---")
+  message("nrow: ", nrow(df))
+  message("ncol: ", ncol(df))
+
+  if (response_col %in% colnames(df)) {
+    message("response counts:")
+    print(table(df[[response_col]], useNA = "ifany"))
+  } else {
+    message("response column missing: ", response_col)
+  }
+
+  if (!is.null(feature_cols)) {
+    missing_features <- setdiff(feature_cols, colnames(df))
+    if (length(missing_features) > 0) {
+      message("missing features: ", paste(missing_features, collapse = ", "))
+    }
+
+    present_features <- intersect(feature_cols, colnames(df))
+
+    feature_summary <- purrr::map_dfr(present_features, function(col) {
+      x <- df[[col]]
+      tibble::tibble(
+        feature = col,
+        class = paste(class(x), collapse = "/"),
+        n_non_missing = sum(!is.na(x)),
+        n_unique = length(unique(stats::na.omit(x))),
+        values = paste(utils::head(unique(stats::na.omit(x)), 5), collapse = ", ")
+      )
+    })
+
+    print(feature_summary, n = Inf)
+  }
+
+  invisible(df)
 }
 

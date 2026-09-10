@@ -81,6 +81,8 @@ readProspectorXLOutput <- function(inputFile, minPepLen = 3, minPepScore = 0, mi
     datTab <- scoreFilter(datTab, minScore = minPepScore) }
   datTab <- datTab %>%
     filter(.data$Score.Diff >= minScoreDiff)
+  if (nrow(datTab) == 0) {
+    return(NULL) }
   datTab <- calculatePairs(datTab)
   if ("numProdIons.1" %in% names(datTab) & "numProdIons.1" %in% names(datTab)) {
     datTab <- productIonFilter(datTab, minProducts.1 = minIons, minProducts.2 = minIons) }
@@ -166,7 +168,7 @@ calculatePairs <- function(datTab, scalingFactor = the$decoyScalingFactor){
   datTab <- datTab %>%
     add_count(.data$xlinkedResPair, name="numCSM") %>%
     group_by(.data$xlinkedResPair) %>%
-    mutate(wtCSM = sum(Score.Diff >= 15)) %>%
+    mutate(wtCSM = log1p(sum(Score.Diff >= 15))) %>%
     ungroup()
   uniqueProtCount <- datTab %>%
     select("xlinkedProtPair", "xlinkedResPair", "Score.Diff") %>%
@@ -175,10 +177,10 @@ calculatePairs <- function(datTab, scalingFactor = the$decoyScalingFactor){
     slice(1) %>%
     group_by(.data$xlinkedProtPair) %>%
     add_count(name = "numURP") %>%
-    mutate(wtURP = sum(Score.Diff >= 15)) %>%
+    mutate(wtURP = log1p(sum(Score.Diff >= 15))) %>%
     ungroup() %>%
     select(-Score.Diff)
-  datTab <- left_join(select(datTab, -any_of("numURP")), uniqueProtCount, by=c("xlinkedProtPair","xlinkedResPair"))
+  datTab <- left_join(select(datTab, -any_of(c("numURP", "wtURP"))), uniqueProtCount, by=c("xlinkedProtPair","xlinkedResPair"))
   if ("Module.1" %in% names(datTab) & "Module.2" %in% names(datTab)) {
     datTab <- datTab %>%
       mutate(Module.1 = as.character(.data$Module.1),
@@ -412,22 +414,127 @@ calculateDiagnosticPairsNonCleavable <- function(datTab) {
 #' @param pep.len Length of peptide
 #' @return A numeric vector of bond cleavage indicies
 #' @seealso [calculateProductIons()]
-getProductIonMatches <- function(msms.ions, pep.len) {
-  # will break if pep.len > 99
+# getProductIonMatches <- function(msms.ions, pep.len) {
+#   # will break if pep.len > 99
+#   ions <- unlist(stringr::str_split(msms.ions, ";"))
+#   n_indicies <- stringr::str_extract_all(ions, "(?<=^[bc][\\*\\#]*)([0-9]+)(?!\\-)") %>%
+#   # n_indicies <- stringr::str_extract_all(ions, "(?<=^[bc][\\*\\#]?)([[0-9]]{1,2})(?!\\-)") %>%
+#     unlist %>%
+#     unique %>%
+#     as.numeric
+#   c_indicies <- stringr::str_extract_all(ions, "(?<=^[yz][\\*\\#]*)([0-9]+)(?!\\-)") %>%
+#   # c_indicies <- stringr::str_extract_all(ions, "(?<=^[yz][\\*\\#]?)([[0-9]]{1,2})(?!\\-)") %>%
+#     unlist %>%
+#     unique %>%
+#     as.numeric
+#   c_indicies <- pep.len - c_indicies %>%
+#     sort
+#   ion_indicies <- union(n_indicies, c_indicies) %>% sort
+#   return(ion_indicies)
+# }
+
+getProductIonMatches <- function(msms.ions, pep.len, max_missing = 1) {
+  # Helper for empty / missing inputs
+  empty_result <- function() {
+    list(
+      ion_indicies = numeric(0),
+      n_bonds_possible = max(pep.len - 1, 0),
+      n_bonds_observed = 0,
+      longest_ladder = 0,
+      longest_gapped_ladder_observed = 0,
+      Perc.Gapped.Ladder = 0
+    )
+  }
+
+  if (is.na(msms.ions) || msms.ions == "" || is.na(pep.len) || pep.len < 2) {
+    return(empty_result())
+  }
+
   ions <- unlist(stringr::str_split(msms.ions, ";"))
-  n_indicies <- stringr::str_extract_all(ions, "(?<=^[bc][\\*\\#]?)([[0-9]]{1,2})(?!\\-)") %>%
-    unlist %>%
-    unique %>%
-    as.numeric
-  c_indicies <- stringr::str_extract_all(ions, "(?<=^[yz][\\*\\#]?)([[0-9]]{1,2})(?!\\-)") %>%
-    unlist %>%
-    unique %>%
-    as.numeric
-  c_indicies <- pep.len - c_indicies %>%
-    sort
-  ion_indicies <- union(n_indicies, c_indicies) %>% sort
-  return(ion_indicies)
+  # N-terminal ions: b/c
+  # Allows b7, b*7, b#7, b*#7, etc.
+  # Excludes neutral-loss variants where the number is immediately followed by "-"
+  n_indicies <- stringr::str_match(
+    ions,
+    "^[bc][\\*\\#]*([0-9]+)(?!\\-)"
+  )[, 2] |>
+    as.numeric()
+  # C-terminal ions: y/z
+  c_indicies <- stringr::str_match(
+    ions,
+    "^[yz][\\*\\#]*([0-9]+)(?!\\-)"
+  )[, 2] |>
+    as.numeric()
+
+  c_indicies <- pep.len - c_indicies
+  ion_indicies <- union(n_indicies, c_indicies) %>%
+    sort()
+
+  # Keep only valid backbone cleavage positions
+  ion_indicies <- ion_indicies[
+    !is.na(ion_indicies) &
+      ion_indicies >= 1 &
+      ion_indicies <= (pep.len - 1)
+  ]
+
+  n_bonds_possible <- pep.len - 1
+
+  if (length(ion_indicies) == 0) {
+    return(empty_result())
+  }
+
+  # Strict contiguous ladders
+  strict_groups <- split(
+    ion_indicies,
+    cumsum(c(1, diff(ion_indicies) != 1))
+  )
+
+  longest_ladder <- max(lengths(strict_groups))
+
+  # Gapped ladder:
+  # Find the longest observed run where the span contains <= max_missing missing bond indices.
+  best_observed <- 1
+  best_span <- 1
+  best_missing <- 0
+  best_density <- 1
+
+  for (i in seq_along(ion_indicies)) {
+    for (j in i:length(ion_indicies)) {
+
+      observed <- j - i + 1
+      span <- ion_indicies[j] - ion_indicies[i] + 1
+      missing <- span - observed
+
+      if (missing <= max_missing) {
+        density <- observed / span
+
+        # Prefer more observed ions.
+        # If tied, prefer longer span.
+        # If still tied, prefer higher density.
+        if (
+          observed > best_observed ||
+          (observed == best_observed && span > best_span) ||
+          (observed == best_observed && span == best_span && density > best_density)
+        ) {
+          best_observed <- observed
+          best_span <- span
+          best_missing <- missing
+          best_density <- density
+        }
+      }
+    }
+  }
+
+  list(
+    ion_indicies = ion_indicies,
+    n_bonds_possible = n_bonds_possible,
+    n_bonds_observed = length(ion_indicies),
+    longest_ladder = longest_ladder,
+    longest_gapped_ladder_observed = best_observed,
+    Perc.Gapped.Ladder = best_observed / n_bonds_possible
+  )
 }
+
 
 #' Calculates the number of distinct backbone bond-cleavages observed as in the product ion spectrum.
 #'
@@ -440,8 +547,14 @@ getProductIonMatches <- function(msms.ions, pep.len) {
 #'
 calculateProductIons <- function(datTab) {
   datTab <- datTab %>%
-    mutate(numProdIons.1 = purrr::map2_int(.data$MSMS.Ions.1, .data$Len.Pep.1, function(x,y) length(getProductIonMatches(x,y))),
-           numProdIons.2 = purrr::map2_int(.data$MSMS.Ions.2, .data$Len.Pep.2, function(x,y) length(getProductIonMatches(x,y))))
+    mutate(
+      numProdIons.1 = purrr::map2_int(.data$MSMS.Ions.1, .data$Len.Pep.1, function(x,y) getProductIonMatches(x,y)$n_bonds_observed),
+      numProdIons.2 = purrr::map2_int(.data$MSMS.Ions.2, .data$Len.Pep.2, function(x,y) getProductIonMatches(x,y)$n_bonds_observed),
+      ladderLen.1 = purrr::map2_int(.data$MSMS.Ions.1, .data$Len.Pep.1, function(x,y) getProductIonMatches(x,y)$longest_gapped_ladder_observed),
+      ladderLen.2 = purrr::map2_int(.data$MSMS.Ions.2, .data$Len.Pep.2, function(x,y) getProductIonMatches(x,y)$longest_gapped_ladder_observed),
+      Perc.Ladder.1 = purrr::map2_dbl(.data$MSMS.Ions.1, .data$Len.Pep.1, function(x,y) getProductIonMatches(x,y)$Perc.Gapped.Ladder),
+      Perc.Ladder.2 = purrr::map2_dbl(.data$MSMS.Ions.2, .data$Len.Pep.2, function(x,y) getProductIonMatches(x,y)$Perc.Gapped.Ladder)
+      )
 }
 
 #' Exclude crosslinks or CSMs below a threshold number of bond cleavages matched per peptide.
@@ -496,16 +609,17 @@ scoreFilter <- function(datTab, minScore=0) {
 #' @export
 #'
 bestPair <- function(datTab,
-                     summarizationVar=.data$xlinkedResPair,
-                     classifier=.data$SVM.score,
-                     retainGroups=T){
-  datTab <- datTab %>%
-    group_by({{summarizationVar}}, .add=retainGroups) %>%
+                     summarizationVar = xlinkedResPair,
+                     classifier = SVM.score,
+                     retainGroups = TRUE) {
+  summarizationVar <- ensym(summarizationVar)
+  classifier <- ensym(classifier)
+  datTab %>%
+    group_by(!!summarizationVar, .add = retainGroups) %>%
     filter(n() > 0) %>%
-    filter({{classifier}}==max({{classifier}})) %>%
+    filter(!!classifier == max(!!classifier)) %>%
     slice(1) %>%
-    ungroup({{summarizationVar}})
-  return(datTab)
+    ungroup(!!summarizationVar)
 }
 
 #' Summarize on Unique Residue Pairs (URPs)
@@ -521,21 +635,16 @@ bestPair <- function(datTab,
 #' @seealso [bestPepPair()], [bestProtPair()], [bestModPair()]
 #' @export
 #'
-bestResPair <- function(datTab, classifier=.data$SVM.score, retainGroups=T){
-  classifier.quo <- enquo(classifier)
-  bestPair(datTab, summarizationVar=.data$xlinkedResPair, !!classifier.quo, retainGroups)
+bestResPair <- function(datTab,
+                        classifier = SVM.score,
+                        retainGroups = TRUE) {
+  bestPair(
+    datTab,
+    summarizationVar = xlinkedResPair,
+    classifier = {{ classifier }},
+    retainGroups = retainGroups
+  )
 }
-
-# bestResPair <- function(datTab, classifier=.data$SVM.score, retainGroups=T){
-#   quoClass <- enquo(classifier)
-#   datTab <- datTab %>%
-#     group_by(.data$xlinkedResPair, .add=retainGroups) %>%
-#     filter(n() > 0) %>%
-#     filter(!! quoClass==max(!! quoClass)) %>%
-#     slice(1) %>%
-#     ungroup()
-#   return(datTab)
-# }
 
 #' Summarize on Peptide Pairs
 #'
@@ -550,9 +659,15 @@ bestResPair <- function(datTab, classifier=.data$SVM.score, retainGroups=T){
 #' @seealso [bestResPair()], [bestProtPair()], [bestProtPair()]
 #' @export
 #'
-bestPepPair <- function(datTab, classifier=.data$SVM.score, retainGroups=T){
-  classifier.quo <- enquo(classifier)
-  bestPair(datTab, summarizationVar=.data$xlinkedPepPair, !!classifier.quo, retainGroups)
+bestPepPair <- function(datTab,
+                        classifier = SVM.score,
+                        retainGroups = TRUE) {
+  bestPair(
+    datTab,
+    summarizationVar = xlinkedPepPair,
+    classifier = {{ classifier }},
+    retainGroups = retainGroups
+  )
 }
 
 #' Summarize on Protein Pairs (PPs)
@@ -568,9 +683,15 @@ bestPepPair <- function(datTab, classifier=.data$SVM.score, retainGroups=T){
 #' @seealso [bestResPair()], [bestPepPair()], [bestModPair()]
 #' @export
 #'
-bestProtPair <- function(datTab, classifier=.data$SVM.score, retainGroups=T){
-  classifier.quo <- enquo(classifier)
-  bestPair(datTab, summarizationVar=.data$xlinkedProtPair, !!classifier.quo, retainGroups)
+bestProtPair <- function(datTab,
+                        classifier = SVM.score,
+                        retainGroups = TRUE) {
+  bestPair(
+    datTab,
+    summarizationVar = xlinkedProtPair,
+    classifier = {{ classifier }},
+    retainGroups = retainGroups
+  )
 }
 
 #' Summarize on Module Pairs (MPs)
@@ -586,8 +707,13 @@ bestProtPair <- function(datTab, classifier=.data$SVM.score, retainGroups=T){
 #' @seealso [bestResPair()], [bestPepPair()], [bestProtPair()]
 #' @export
 #'
-bestModPair <- function(datTab, classifier=.data$SVM.score, retainGroups=T){
-  classifier.quo <- enquo(classifier)
-  bestPair(datTab, summarizationVar=.data$xlinkedModulPair, !!classifier.quo, retainGroups)
+bestModPair <- function(datTab,
+                        classifier = SVM.score,
+                        retainGroups = TRUE) {
+  bestPair(
+    datTab,
+    summarizationVar = xlinkedModulPair,
+    classifier = {{ classifier }},
+    retainGroups = retainGroups
+  )
 }
-
