@@ -157,10 +157,8 @@ generateDecoyTable <- function(datTab,
   } else {
     first0 <- first0[1]
   }
-  minFDR <- decTable %>% slice(first0) %>% pull(.data$fdr.exp)
   maxFDR <- max(decTable$fdr.exp[1:first0], na.rm=T)
   medFDR.post <- 0
-  sdFDR.post <- 0.01 * abs(maxFDR - minFDR) / maxFDR
   decTable <- decTable %>%
     mutate(fdr.orig = .data$fdr.exp,
            delta.fdr = abs(.data$fdr.exp - dplyr::lag(.data$fdr.exp)),
@@ -171,7 +169,7 @@ generateDecoyTable <- function(datTab,
   decTable.negs <- which(decTable$fdr.exp < 0)
   decTable.problems <- union(decTable.problems, decTable.negs) %>% sort
   decTable.problems <- decTable.problems[which(decTable.problems > first0)]
-  decTable[decTable.problems, "fdr.exp"] <- stats::rnorm(length(decTable.problems), medFDR.post, sdFDR.post)
+  decTable[decTable.problems, "fdr.exp"] <- medFDR.post
   firstGuess <- which.min(abs(decTable$fdr.exp[1:first0] - targetER))
   decTable <- decTable %>%
     mutate(fdr.weights = case_when(

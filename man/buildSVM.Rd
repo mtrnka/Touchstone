@@ -14,6 +14,7 @@ buildSVM(
   showTab = F,
   seed = 1,
   splitBy = NULL,
+  verbose = FALSE,
   ...
 )
 }
@@ -36,6 +37,8 @@ to use R's current random-number state.}
 \item{splitBy}{Character vector naming columns whose rows must remain together
 during cross-fitting. The default uses \code{xlinkedResPair} when present, then
 a spectrum identifier, and finally individual rows.}
+
+\item{verbose}{Print training-data diagnostics.}
 
 \item{...}{paramters passed to \code{e1071:svm()} function}
 }

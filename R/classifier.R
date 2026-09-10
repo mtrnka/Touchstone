@@ -1,9 +1,11 @@
-#' Trains an SVM classifier for CLMS datasets. Performs basic feature selection with
-#' different sets of features used for small database searches and larger one.
-#' Performs some prefilitering of the data that optimizes performance based on database
-#' search size. Performs hyperparamater optimization in a grid search using `tuneSVM()`
-#' and chooses the model which produces the most inter-protein crosslinked residue pairs
-#' in the range of 0.01 and 0.05 FDR.
+#' Train and select a crosslink-scoring SVM
+#'
+#' Performs feature selection, optional Score.Diff prefilter selection, and a
+#' reproducible grid search. Linear SVMs are the conservative default. Candidate
+#' models must reach the requested interprotein FDR with nonzero recovery and
+#' remain positively correlated with Score.Diff. Eligible linear candidates are
+#' ranked by recovery at the target FDR, then by average recovery over the
+#' low-FDR region and lower cost.
 #'
 #' @param datTab Parsed CLMS search results
 #' @param params Character vector specifying names of the features in `datTab` used to train model.
@@ -12,15 +14,21 @@
 #' @param targetER Desired FDR for classification of CSMs
 #' @param sampleNo Size of the training dataset (integer).
 #' @param cost_values Numeric vector of cost values used for hyperparameter tuning of the SVM model
-#' @param gamma_values Numeric vector of gamma values used for hyperparameter tuning of the SVM model
+#' @param gamma_values Numeric vector of gamma values used only when radial
+#'   kernels are explicitly requested.
 #' @param sd_values Numeric vector of Score Diff values to use for prefilitering optimiziation.
+#' @param kernels Character vector of SVM kernels to evaluate. The conservative
+#'   default is `"linear"`; include `"radial"` to evaluate experimental radial
+#'   candidates without making them eligible for automatic recommendation.
 #' @param seed Integer seed used to make cross-fitting reproducible.
 #' @param splitBy Character vector naming columns whose rows must remain together
 #'   during cross-fitting. The default uses residue pairs when available, then a
 #'   spectrum identifier, and finally individual rows.
+#' @param verbose Print progress and the candidate table.
 #' @seealso [tuneSVM()], [tuneSVM.helper()], [buildSVM()]
-#' @returns A list containing all of the SVM models at different cost and gamma values
-#' as well as a summary table.
+#' @returns A `touchstone_training` object containing the recommended candidate,
+#'   the candidate audit table, all fitted candidates, prefilter information,
+#'   and training settings.
 #' @export
 trainCrosslinkScore <- function(datTab,
                                 params = NULL,
@@ -31,8 +39,10 @@ trainCrosslinkScore <- function(datTab,
                                 cost_values = c(1, 5, 10),
                                 gamma_values = c(0.01, 0.05, 0.1),
                                 sd_values = c(0,5,10,15,20),
+                                kernels = "linear",
                                 seed = 1,
-                                splitBy = NULL) {
+                                splitBy = NULL,
+                                verbose = FALSE) {
   datTab <- dplyr::ungroup(datTab)
 
   # feature selection
@@ -72,11 +82,12 @@ trainCrosslinkScore <- function(datTab,
       scoreName = scoreName,
       scalingFactor = scalingFactor,
       sampleNo = sampleNo,
-      cost = 10,
-      gamma = 0.1,
-      kernel = "radial",
+      cost = min(cost_values),
+      gamma = NA_real_,
+      kernel = "linear",
       seed = seed,
       splitBy = splitBy,
+      verbose = verbose,
       fallback.threshold = min(sd_values, na.rm = TRUE)
     )
 
@@ -85,36 +96,10 @@ trainCrosslinkScore <- function(datTab,
     bestPreFilter <- prefilter$bestPreFilter
   }
 
-# if (length(unique(pull(removeDecoys(datTab), .data$Acc.1, .data$Acc.2))) > 1000) {
-#     preFiltered.dts <- sd_values %>%
-#       purrr::map(function(sd) {
-#         datTab.pre <- datTab %>%
-#           filter(.data$Score.Diff >= sd)
-#         message("Score Diff Pre-filtering optimization...")
-#         tuneSVM.helper(datTab=datTab.pre,
-#                        targetER=targetER,
-#                        params=params,
-#                        scoreName=scoreName,
-#                        scalingFactor = scalingFactor,
-#                        sampleNo = sampleNo,
-#                        cost=10, gamma=0.1, kernel="radial")
-#       })
-#     preFilter.summary <- preFiltered.dts %>%
-#       purrr::imap_dfr(function(x, i) {
-#         data.frame("index" = i, "sd.thresh" = x$sd.thresh,
-#                     "interInt" = x$interInt, "interHits" = x$interHits)
-#         }) %>%
-#       arrange(desc(.data$interInt))
-#     bestPreFilter <- preFilter.summary %>%
-#       filter(dplyr::between(.data$interInt, 0.95 * max(.data$interInt), max(.data$interInt))) %>%
-#       pull(.data$sd.thresh) %>%
-#       min()
-#        return(list(preFiltered.dts, preFilter.summary, bestPreFilter))
-#     datTab <- datTab %>%
-#       filter(.data$Score.Diff >= bestPreFilter)
-
-  # hyperparamater optimziation
-  message("Hyperparamter optimization...")
+  # Hyperparameter optimization
+  if (verbose) {
+    message("Hyperparameter optimization...")
+  }
   tuned <- tuneSVM(datTab,
                    params=params,
                    scoreName=scoreName,
@@ -123,58 +108,213 @@ trainCrosslinkScore <- function(datTab,
                    sampleNo = sampleNo,
                    cost_values = cost_values,
                    gamma_values = gamma_values,
+                   kernels = kernels,
                    seed = seed,
-                   splitBy = splitBy)
+                   splitBy = splitBy,
+                   verbose = verbose)
   tuned.parse <- tuned %>%
     purrr::imap_dfr(function(x,i) {
-      data.frame("index" = i, "cost" = x$cost, "gamma" = x$gamma,
-                 "interInt" = x$interInt, "interHits" = x$interHits,
-                 "corScore" = x$corScore)
+      data.frame(
+        "index" = i,
+        "kernel" = x$kernel,
+        "cost" = x$cost,
+        "gamma" = x$gamma,
+        "interInt" = x$interInt,
+        "interHits" = x$interHits,
+        "scoreCorrelation" = x$corScore / 100,
+        "targetFDRReached" = any(
+          x$errorTable$fdr.inter <= targetER & x$errorTable$inter > 0,
+          na.rm = TRUE
+        )
+      )
     }) %>%
-    mutate(objFun = .data$interInt * .data$interHits * .data$corScore) %>%
-    arrange(desc(.data$objFun))
-  tuned.plot <- tuned %>%
-    map_dfr(function(x) {
-      df <- x$errorTable
-      df <- df %>% mutate(
-        kernel=x$kernel,
-        cost=x$cost,
-        gamma=x$gamma)
-    }) %>%
-    filter(.data$fdr.inter <= 0.05) %>%
-    filter(.data$inter >= 0.05 * max(.data$inter)) %>%
-    ggplot(aes(x=.data$fdr.inter, y=.data$inter, col=as.factor(.data$cost))) +
-    geom_line(linewidth=1.2) +
-    theme_bw() +
-    xlim(0,0.05) +
-    geom_vline(xintercept = targetER, color="red") +
-    ggplot2::scale_color_viridis_d(option="C") +
-    facet_grid(rows=ggplot2::vars(gamma), scales="free_y")
-  # # bestModelIndex <- tuned.parse %>%
-  # #   filter(dplyr::between(.data$interInt, 0.975 * max(.data$interInt, na.rm=T), max(.data$interInt, na.rm=T))) %>%
-  # #   filter(.data$interHits == max(.data$interHits)) %>%
-  # #   pull(.data$index)
-  # # tuned[[length(tuned) + 1]] <- tuned.parse
-  # # tuned[[length(tuned) + 1]] <- bestModelIndex
-  # # bestModel <- tuned[[bestModelIndex]]
-  # # CSM.thresh <- findSeparateThresholdsModelled(bestModel$CSMs, targetER = targetER, scalingFactor = scalingFactor)
-  print(tuned.parse)
-  if (!is.null(tuned.plot)) {
-    suppressWarnings(print(tuned.plot))
+    mutate(
+      eligible = .data$kernel == "linear" &
+        .data$targetFDRReached &
+        is.finite(.data$interInt) &
+        .data$interHits > 0 &
+        is.finite(.data$scoreCorrelation) &
+        .data$scoreCorrelation > 0,
+      rejectionReason = dplyr::case_when(
+        .data$kernel != "linear" ~
+          "Radial candidates are inspection-only",
+        !.data$targetFDRReached ~
+          "Target interprotein FDR was not reached with nonzero hits",
+        !is.finite(.data$interInt) ~
+          "FDR-versus-hit summary was not finite",
+        .data$interHits <= 0 ~
+          "No interprotein hits at the target FDR",
+        !is.finite(.data$scoreCorrelation) ~
+          "Score correlation was not finite",
+        .data$scoreCorrelation <= 0 ~
+          "SVM score was not positively correlated with Score.Diff",
+        TRUE ~ NA_character_
+      )
+    )
+
+  eligible.models <- tuned.parse %>%
+    filter(.data$eligible) %>%
+    arrange(
+      desc(.data$interHits),
+      desc(.data$interInt),
+      .data$cost,
+      desc(.data$scoreCorrelation)
+    )
+
+  recommended.index <- if (nrow(eligible.models) > 0) {
+    eligible.models$index[[1]]
+  } else {
+    NA_integer_
   }
-  return(tuned)
-  # # return(list(
-  # #   "CSMs" = bestModel$CSMs,
-  # #   "URPs" = bestModel$URPs,
-  # #   "CSM.thresh" = CSM.thresh,
-  # #   "URP.thresh" = bestModel$thresh,
-  # #   "model.params" = list(
-  # #     "kernel" = bestModel$kernel,
-  # #     "cost" = bestModel$cost,
-  # #     "gamma" = bestModel$gamma,
-  # #     "sd.thresh" = bestModel$sd.thresh,
-  # #     "features" = bestModel$params)
-  # # ))
+
+  tuned.parse <- tuned.parse %>%
+    mutate(
+      recommended = if (is.na(recommended.index)) {
+        FALSE
+      } else {
+        .data$index == recommended.index
+      }
+    ) %>%
+    arrange(desc(.data$recommended), desc(.data$eligible), .data$kernel,
+            .data$cost, .data$gamma)
+
+  if (verbose) {
+    print(tuned.parse)
+  }
+
+  structure(
+    list(
+      recommended = if (is.na(recommended.index)) NULL else tuned[[recommended.index]],
+      recommendedIndex = recommended.index,
+      candidates = tuned.parse,
+      models = tuned,
+      prefilter = list(
+        selectedScoreDiff = bestPreFilter,
+        candidates = preFilter.summary
+      ),
+      settings = list(
+        targetER = targetER,
+        kernels = kernels,
+        seed = seed,
+        splitBy = splitBy,
+        features = params
+      )
+    ),
+    class = "touchstone_training"
+  )
+}
+
+#' Print a Touchstone training result
+#'
+#' @param x A result returned by [trainCrosslinkScore()].
+#' @param ... Additional arguments passed to `print()` for the candidate table.
+#' @return `x`, invisibly.
+#' @export
+print.touchstone_training <- function(x, ...) {
+  if (is.null(x$recommended)) {
+    cat("Touchstone training result: no eligible model was recommended.\n")
+  } else {
+    cat("Touchstone training result: recommended candidate ",
+        x$recommendedIndex, ".\n", sep = "")
+  }
+  print(x$candidates, ...)
+  invisible(x)
+}
+
+#' Plot FDR versus the number of recovered crosslinks
+#'
+#' Creates the faceted diagnostic plot formerly printed automatically by
+#' `trainCrosslinkScore()`. Linear and radial/gamma model families occupy
+#' separate facets, and color denotes SVM cost. Weak candidates are retained so
+#' failed or unstable model families remain visible during inspection.
+#'
+#' @param training Result returned by `trainCrosslinkScore()`, or the model list
+#'   returned by `tuneSVM()`.
+#' @param targetER Desired FDR shown by the vertical reference line. By default,
+#'   uses the value stored in a `trainCrosslinkScore()` result.
+#' @param maxFDR Largest FDR value displayed.
+#' @param linkClass Plot `"inter"` or `"intra"` protein crosslinks.
+#' @return A `ggplot2` plot.
+#' @export
+plotFDRHits <- function(training,
+                        targetER = NULL,
+                        maxFDR = 0.05,
+                        linkClass = c("inter", "intra")) {
+  linkClass <- match.arg(linkClass)
+
+  if (inherits(training, "touchstone_training")) {
+    models <- training$models
+    if (is.null(targetER)) {
+      targetER <- training$settings$targetER
+    }
+  } else if (is.list(training)) {
+    models <- training
+  } else {
+    stop(
+      "training must be a trainCrosslinkScore() result or tuneSVM() model list.",
+      call. = FALSE
+    )
+  }
+
+  if (is.null(targetER)) {
+    targetER <- 0.01
+  }
+  if (length(maxFDR) != 1 || !is.finite(maxFDR) || maxFDR <= 0) {
+    stop("maxFDR must be one positive, finite number.", call. = FALSE)
+  }
+
+  fdr.column <- paste0("fdr.", linkClass)
+  hit.column <- linkClass
+
+  plot.data <- purrr::imap_dfr(models, function(model, index) {
+    required <- c("errorTable", "kernel", "cost", "gamma")
+    if (!all(required %in% names(model)) ||
+        !all(c(fdr.column, hit.column) %in% names(model$errorTable))) {
+      stop(
+        "Every candidate must contain model settings and an FDR error table.",
+        call. = FALSE
+      )
+    }
+
+    model.label <- if (identical(model$kernel, "linear")) {
+      "linear"
+    } else {
+      paste0("radial (gamma = ", format(model$gamma), ")")
+    }
+    model.cost <- model$cost
+
+    model$errorTable %>%
+      dplyr::transmute(
+        candidate = index,
+        model = model.label,
+        cost = factor(model.cost),
+        fdr = .data[[fdr.column]],
+        hits = .data[[hit.column]]
+      )
+  }) %>%
+    filter(is.finite(.data$fdr), is.finite(.data$hits),
+           .data$fdr >= 0, .data$fdr <= maxFDR)
+
+  if (nrow(plot.data) == 0) {
+    stop("No finite FDR-versus-hit values fall within maxFDR.", call. = FALSE)
+  }
+
+  plot.data$model <- factor(plot.data$model, levels = unique(plot.data$model))
+
+  ggplot2::ggplot(
+    plot.data,
+    ggplot2::aes(x = .data$fdr, y = .data$hits,
+                 color = .data$cost, group = .data$candidate)
+  ) +
+    ggplot2::geom_line(linewidth = 1.1) +
+    ggplot2::geom_vline(xintercept = targetER, color = "red") +
+    ggplot2::scale_color_viridis_d(option = "C", name = "Cost") +
+    ggplot2::facet_grid(rows = ggplot2::vars(.data$model), scales = "free_y") +
+    ggplot2::labs(
+      x = paste0(toupper(linkClass), "-protein FDR"),
+      y = paste0(toupper(linkClass), "-protein crosslinks")
+    ) +
+    ggplot2::theme_bw()
 }
 
 as_scalar_numeric <- function(x, default = NA_real_) {
@@ -198,11 +338,12 @@ chooseScoreDiffPrefilter <- function(datTab,
                                      scoreName = "SVM.score",
                                      scalingFactor = the$decoyScalingFactor,
                                      sampleNo = 20000,
-                                     cost = 10,
-                                     gamma = 0.1,
-                                     kernel = "radial",
+                                     cost = 1,
+                                     gamma = NA_real_,
+                                     kernel = "linear",
                                      seed = 1,
                                      splitBy = NULL,
+                                     verbose = FALSE,
                                      class.col = NULL,
                                      target.label = "Target",
                                      min.total = 500,
@@ -237,7 +378,9 @@ chooseScoreDiffPrefilter <- function(datTab,
     sd_values <- fallback.threshold
   }
 
-  message("Score.Diff prefilter optimization...")
+  if (verbose) {
+    message("Score.Diff prefilter optimization...")
+  }
 
   prefilter.results <- purrr::map(sd_values, function(sd) {
     datTab.pre <- datTab %>%
@@ -291,7 +434,8 @@ chooseScoreDiffPrefilter <- function(datTab,
           gamma = gamma,
           kernel = kernel,
           seed = seed,
-          splitBy = splitBy
+          splitBy = splitBy,
+          verbose = verbose
         )
       },
       error = function(e) e
@@ -418,10 +562,13 @@ chooseScoreDiffPrefilter <- function(datTab,
 #' @param targetER Desired FDR for classification of CSMs
 #' @param sampleNo Size of the training dataset (integer).
 #' @param cost_values Numeric vector of cost values used for hyperparameter tuning of the SVM model
-#' @param gamma_values Numeric vector of gamma values used for hyperparameter tuning of the SVM model
+#' @param gamma_values Numeric vector of gamma values used only for radial kernels.
+#' @param kernels Character vector of kernels to evaluate. Defaults to
+#'   `"linear"`. Include `"radial"` for experimental comparison.
 #' @param seed Integer seed used to make cross-fitting reproducible.
 #' @param splitBy Character vector naming columns whose rows must remain together
 #'   during cross-fitting.
+#' @param verbose Print training diagnostics.
 #' @seealso [trainCrosslinkScore()], [tuneSVM.helper()], [buildSVM()]
 #' @returns A list containing all of the SVM models at different cost and gamma values.
 #' @export
@@ -433,11 +580,16 @@ tuneSVM <- function(datTab,
                     sampleNo = 20000,
                     cost_values = c(0.5, 1, 5, 10),
                     gamma_values = c(0.01, 0.05, 0.1, 0.5),
+                    kernels = "linear",
                     seed = 1,
-                    splitBy = NULL) {
-  param_grid <- expand.grid(cost=cost_values, gamma=gamma_values)
-  param_grid$kernel = "radial"
-  param_grid = bind_rows(param_grid, data.frame(cost=cost_values, gamma=23, kernel="linear"))
+                    splitBy = NULL,
+                    verbose = FALSE) {
+  param_grid <- makeSVMParameterGrid(
+    cost_values = cost_values,
+    gamma_values = gamma_values,
+    kernels = kernels
+  )
+
   tuned <- purrr::pmap(param_grid, function(cost, gamma, kernel) {
     tuneSVM.helper(datTab=datTab,
                    targetER=targetER,
@@ -447,9 +599,40 @@ tuneSVM <- function(datTab,
                    sampleNo = sampleNo,
                    cost, gamma, kernel,
                    seed = seed,
-                   splitBy = splitBy)
+                   splitBy = splitBy,
+                   verbose = verbose)
   })
   return(tuned)
+}
+
+makeSVMParameterGrid <- function(cost_values,
+                                 gamma_values,
+                                 kernels = "linear") {
+  kernels <- match.arg(kernels, c("linear", "radial"), several.ok = TRUE)
+
+  param_grid <- tibble::tibble()
+  if ("linear" %in% kernels) {
+    param_grid <- dplyr::bind_rows(
+      param_grid,
+      tibble::tibble(
+        cost = cost_values,
+        gamma = NA_real_,
+        kernel = "linear"
+      )
+    )
+  }
+  if ("radial" %in% kernels) {
+    param_grid <- dplyr::bind_rows(
+      param_grid,
+      tidyr::expand_grid(
+        cost = cost_values,
+        gamma = gamma_values,
+        kernel = "radial"
+      )
+    )
+  }
+
+  param_grid
 }
 
 #' Helper function called by `tuneSVM()` that in turn calls `buildSVM()` and
@@ -469,6 +652,7 @@ tuneSVM <- function(datTab,
 #' @param seed Integer seed used to make cross-fitting reproducible.
 #' @param splitBy Character vector naming columns whose rows must remain together
 #'   during cross-fitting.
+#' @param verbose Print training diagnostics.
 #' @seealso [trainCrosslinkScore()], [tuneSVM()], [buildSVM()]
 #' @returns A list containing the trained data at CSM and URP levels, score thresholds
 #' for the targetER, the error table and some other information used for tuning.
@@ -479,18 +663,33 @@ tuneSVM.helper <- function(datTab,
                            scoreName="SVM.score",
                            scalingFactor = the$decoyScalingFactor,
                            sampleNo = 20000,
-                           cost, gamma, kernel,
+                           cost = 1,
+                           gamma = NA_real_,
+                           kernel = "linear",
                            seed = 1,
-                           splitBy = NULL) {
-  datTab.csm <- buildSVM(datTab=datTab,
-                         targetER=targetER,
-                         params=params,
-                         scoreName=scoreName,
-                         sampleNo = sampleNo,
-                         showTab = F,
-                         seed = seed,
-                         splitBy = splitBy,
-                         cost=cost, gamma=gamma, kernel=kernel)
+                           splitBy = NULL,
+                           verbose = FALSE) {
+  kernel <- match.arg(kernel, c("linear", "radial"))
+  if (kernel == "radial" &&
+      (length(gamma) != 1 || !is.finite(gamma) || gamma <= 0)) {
+    stop("gamma must be positive and finite for a radial SVM.", call. = FALSE)
+  }
+  svm.args <- list(
+    datTab = datTab,
+    params = params,
+    scoreName = scoreName,
+    sampleNo = sampleNo,
+    showTab = FALSE,
+    seed = seed,
+    splitBy = splitBy,
+    verbose = verbose,
+    cost = cost,
+    kernel = kernel
+  )
+  if (kernel == "radial") {
+    svm.args$gamma <- gamma
+  }
+  datTab.csm <- do.call(buildSVM, svm.args)
   datTab.urp <- bestResPair(datTab.csm)
   datTab.urp.thresh <- findSeparateThresholdsModelled(datTab.urp,
                                                       targetER = targetER,
@@ -512,13 +711,19 @@ tuneSVM.helper <- function(datTab,
     filter(.data$Decoy == "Target",
            .data$xlinkClass == "interProtein") %>%
     arrange(desc(.data$Score.Diff))
-  top.inter.csms <- top.inter.csms %>%
-    slice(1:(nrow(top.inter.csms) / 2))
-  correlation_score <- 100 * stats::cor(
-    top.inter.csms$Score.Diff,
-    top.inter.csms$SVM.score,
-    method = "spearman"
+  top.inter.csms <- dplyr::slice_head(
+    top.inter.csms,
+    n = floor(nrow(top.inter.csms) / 2)
   )
+  correlation_score <- if (nrow(top.inter.csms) >= 2) {
+    100 * stats::cor(
+      top.inter.csms$Score.Diff,
+      top.inter.csms$SVM.score,
+      method = "spearman"
+    )
+  } else {
+    NA_real_
+  }
 
   list("CSMs" = datTab.csm,
        "URPs" = datTab.urp,
@@ -551,6 +756,7 @@ tuneSVM.helper <- function(datTab,
 #' @param splitBy Character vector naming columns whose rows must remain together
 #'   during cross-fitting. The default uses `xlinkedResPair` when present, then
 #'   a spectrum identifier, and finally individual rows.
+#' @param verbose Print training-data diagnostics.
 #' @param ... paramters passed to `e1071:svm()` function
 #' @seealso [trainCrosslinkScore()], [tuneSVM.helper()], [tuneSVM()]
 #' @return A data frame, one column larger than the input containing the new score.
@@ -562,6 +768,7 @@ buildSVM <- function(datTab,
                      showTab = F,
                      seed = 1,
                      splitBy = NULL,
+                     verbose = FALSE,
                      ...) {
   datTab$massError <- abs(datTab$ppm - mean(datTab$ppm))
   split <- makeCrossfitSplit(
@@ -581,17 +788,19 @@ buildSVM <- function(datTab,
   wghts.2["Target"] <- table(train.2$Decoy2)["Decoy"] / sum(table(train.2$Decoy2),na.rm=T)
   wghts.2["Decoy"] <- table(train.2$Decoy2)["Target"] / sum(table(train.2$Decoy2),na.rm=T)
 
-  diagnoseSVMdata(
-    train.df = train.1,
-    response.col = "Decoy2",
-    feature.cols = params
-  )
+  if (verbose) {
+    diagnoseSVMdata(
+      train.df = train.1,
+      response.col = "Decoy2",
+      feature.cols = params
+    )
 
-  diagnoseSVMdata(
-    train.df = train.2,
-    response.col = "Decoy2",
-    feature.cols = params
-  )
+    diagnoseSVMdata(
+      train.df = train.2,
+      response.col = "Decoy2",
+      feature.cols = params
+    )
+  }
 
 
   fit.1 <- e1071::svm(train.1$Decoy2 ~.,

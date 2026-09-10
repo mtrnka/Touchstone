@@ -2,12 +2,7 @@
 % Please edit documentation in R/classifier.R
 \name{trainCrosslinkScore}
 \alias{trainCrosslinkScore}
-\title{Trains an SVM classifier for CLMS datasets. Performs basic feature selection with
-different sets of features used for small database searches and larger one.
-Performs some prefilitering of the data that optimizes performance based on database
-search size. Performs hyperparamater optimization in a grid search using \code{tuneSVM()}
-and chooses the model which produces the most inter-protein crosslinked residue pairs
-in the range of 0.01 and 0.05 FDR.}
+\title{Train and select a crosslink-scoring SVM}
 \usage{
 trainCrosslinkScore(
   datTab,
@@ -19,8 +14,10 @@ trainCrosslinkScore(
   cost_values = c(1, 5, 10),
   gamma_values = c(0.01, 0.05, 0.1),
   sd_values = c(0, 5, 10, 15, 20),
+  kernels = "linear",
   seed = 1,
-  splitBy = NULL
+  splitBy = NULL,
+  verbose = FALSE
 )
 }
 \arguments{
@@ -38,27 +35,35 @@ trainCrosslinkScore(
 
 \item{cost_values}{Numeric vector of cost values used for hyperparameter tuning of the SVM model}
 
-\item{gamma_values}{Numeric vector of gamma values used for hyperparameter tuning of the SVM model}
+\item{gamma_values}{Numeric vector of gamma values used only when radial
+kernels are explicitly requested.}
 
 \item{sd_values}{Numeric vector of Score Diff values to use for prefilitering optimiziation.}
+
+\item{kernels}{Character vector of SVM kernels to evaluate. The conservative
+default is \code{"linear"}; include \code{"radial"} to evaluate experimental radial
+candidates without making them eligible for automatic recommendation.}
 
 \item{seed}{Integer seed used to make cross-fitting reproducible.}
 
 \item{splitBy}{Character vector naming columns whose rows must remain together
 during cross-fitting. The default uses residue pairs when available, then a
 spectrum identifier, and finally individual rows.}
+
+\item{verbose}{Print progress and the candidate table.}
 }
 \value{
-A list containing all of the SVM models at different cost and gamma values
-as well as a summary table.
+A \code{touchstone_training} object containing the recommended candidate,
+the candidate audit table, all fitted candidates, prefilter information,
+and training settings.
 }
 \description{
-Trains an SVM classifier for CLMS datasets. Performs basic feature selection with
-different sets of features used for small database searches and larger one.
-Performs some prefilitering of the data that optimizes performance based on database
-search size. Performs hyperparamater optimization in a grid search using \code{tuneSVM()}
-and chooses the model which produces the most inter-protein crosslinked residue pairs
-in the range of 0.01 and 0.05 FDR.
+Performs feature selection, optional Score.Diff prefilter selection, and a
+reproducible grid search. Linear SVMs are the conservative default. Candidate
+models must reach the requested interprotein FDR with nonzero recovery and
+remain positively correlated with Score.Diff. Eligible linear candidates are
+ranked by recovery at the target FDR, then by average recovery over the
+low-FDR region and lower cost.
 }
 \seealso{
 \code{\link[=tuneSVM]{tuneSVM()}}, \code{\link[=tuneSVM.helper]{tuneSVM.helper()}}, \code{\link[=buildSVM]{buildSVM()}}

@@ -23,9 +23,9 @@ tables with enough provenance to understand how each result was produced.
 - [ ] Explicitly evaluate a small set of prefilters, including `Score.Diff` and
   minimum product-ion evidence, using validation data rather than choosing the
   setting with the largest apparent yield.
-- [ ] Make a linear SVM the default model. Select a radial kernel only when it
-  shows a reproducible, material validation benefit and passes safeguards such
-  as score-orientation and `Score.Diff` agreement checks.
+- [x] Make a linear SVM the default model. Radial candidates are available only
+  for explicit, inspection-only experiments until independent validation shows
+  a reproducible, material benefit.
 - [ ] Return one recommended model plus an audit table containing every
   candidate's filters, features, parameters, validation results, FDR/yield,
   stability measures, and rejection reasons.

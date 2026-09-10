@@ -14,11 +14,12 @@ tuneSVM.helper(
   scoreName = "SVM.score",
   scalingFactor = the$decoyScalingFactor,
   sampleNo = 20000,
-  cost,
-  gamma,
-  kernel,
+  cost = 1,
+  gamma = NA_real_,
+  kernel = "linear",
   seed = 1,
-  splitBy = NULL
+  splitBy = NULL,
+  verbose = FALSE
 )
 }
 \arguments{
@@ -44,6 +45,8 @@ tuneSVM.helper(
 
 \item{splitBy}{Character vector naming columns whose rows must remain together
 during cross-fitting.}
+
+\item{verbose}{Print training diagnostics.}
 }
 \value{
 A list containing the trained data at CSM and URP levels, score thresholds

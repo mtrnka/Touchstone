@@ -93,26 +93,26 @@ test_that("buildSVM produces reproducible cross-fitted scores", {
     ppm = rep(seq(-2, 2, length.out = 20), 2)
   )
 
-  invisible(capture.output(
-    score.1 <- suppressMessages(buildSVM(
+  expect_silent(
+    score.1 <- buildSVM(
       input,
       params = c("Score.Diff", "percMatched", "massError"),
       sampleNo = 16,
       seed = 11,
       kernel = "linear",
       cost = 1
-    ))
-  ))
-  invisible(capture.output(
-    score.2 <- suppressMessages(buildSVM(
+    )
+  )
+  expect_silent(
+    score.2 <- buildSVM(
       input,
       params = c("Score.Diff", "percMatched", "massError"),
       sampleNo = 16,
       seed = 11,
       kernel = "linear",
       cost = 1
-    ))
-  ))
+    )
+  )
 
   expect_identical(score.1$SVM.score, score.2$SVM.score)
   expect_true(all(is.finite(score.1$SVM.score)))

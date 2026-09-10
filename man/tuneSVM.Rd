@@ -14,8 +14,10 @@ tuneSVM(
   sampleNo = 20000,
   cost_values = c(0.5, 1, 5, 10),
   gamma_values = c(0.01, 0.05, 0.1, 0.5),
+  kernels = "linear",
   seed = 1,
-  splitBy = NULL
+  splitBy = NULL,
+  verbose = FALSE
 )
 }
 \arguments{
@@ -33,12 +35,17 @@ tuneSVM(
 
 \item{cost_values}{Numeric vector of cost values used for hyperparameter tuning of the SVM model}
 
-\item{gamma_values}{Numeric vector of gamma values used for hyperparameter tuning of the SVM model}
+\item{gamma_values}{Numeric vector of gamma values used only for radial kernels.}
+
+\item{kernels}{Character vector of kernels to evaluate. Defaults to
+\code{"linear"}. Include \code{"radial"} for experimental comparison.}
 
 \item{seed}{Integer seed used to make cross-fitting reproducible.}
 
 \item{splitBy}{Character vector naming columns whose rows must remain together
 during cross-fitting.}
+
+\item{verbose}{Print training diagnostics.}
 }
 \value{
 A list containing all of the SVM models at different cost and gamma values.
