@@ -664,9 +664,9 @@ summarizeModuleData <- function(datTab, clearDiag = F, modOrder = NULL) {
     jntMods <- forcats::lvls_union(list(datTab$Module.1, datTab$Module.2))
     modsToDrop <- jntMods[! jntMods %in% modOrder]
     datTab <- datTab %>%
-      filter(Module.1 %in% modOrder, Module.2 %in% modOrder) %>%
-      mutate(Module.1 = forcats::fct_drop(Module.1, only=modsToDrop),
-             Module.2 = forcats::fct_drop(Module.2, only=modsToDrop))
+      filter(.data$Module.1 %in% modOrder, .data$Module.2 %in% modOrder) %>%
+      mutate(Module.1 = forcats::fct_drop(.data$Module.1, only=modsToDrop),
+             Module.2 = forcats::fct_drop(.data$Module.2, only=modsToDrop))
     datTab[c("Module.1", "Module.2")] <- datTab %>%
       select(.data$Module.1, .data$Module.2) %>%
       as.list() %>%
@@ -765,6 +765,7 @@ clearAboveDiag <- function(sqMatrix) {
 # 'https://doi.org/10.1074/mcp.O114.042259
 #'
 #' @param datTab Parsed CLMS search results.
+#' @param flavor Output column naming convention: `"xiNet"` or `"xiView"`.
 #'
 #' @returns A data frame
 #' @export

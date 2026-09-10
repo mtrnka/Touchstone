@@ -8,6 +8,9 @@ calculatePairs(datTab, scalingFactor = the$decoyScalingFactor)
 }
 \arguments{
 \item{datTab}{Parsed CLMS search results.}
+
+\item{scalingFactor}{An integer describing how many times larger the decoy
+database is than the target database.}
 }
 \value{
 A data frame

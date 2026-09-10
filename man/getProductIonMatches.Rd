@@ -4,12 +4,15 @@
 \alias{getProductIonMatches}
 \title{Parses the list matched product ions and translate to peptide bond position.}
 \usage{
-getProductIonMatches(msms.ions, pep.len)
+getProductIonMatches(msms.ions, pep.len, max_missing = 1)
 }
 \arguments{
 \item{msms.ions}{List of product ion matches found in Search Compare output}
 
 \item{pep.len}{Length of peptide}
+
+\item{max_missing}{Maximum number of missing cleavage positions allowed in a
+gapped ion ladder.}
 }
 \value{
 A numeric vector of bond cleavage indicies

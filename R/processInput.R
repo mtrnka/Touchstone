@@ -1,7 +1,12 @@
 #' @import rlang
 
-## quiets concerns of R CMD check re: the .'s that appear in pipelines
-if(getRversion() >= "2.15.1")  utils::globalVariables(c("."))
+## Quiets R CMD check notes for symbols intentionally captured by tidy evaluation.
+if (getRversion() >= "2.15.1") {
+  utils::globalVariables(c(
+    ".", "SVM.score", "xlinkedModulPair", "xlinkedPepPair",
+    "xlinkedProtPair", "xlinkedResPair"
+  ))
+}
 
 #' Read Search Compare Output from Protein Prospector
 #'
@@ -77,14 +82,14 @@ readProspectorXLOutput <- function(inputFile, minPepLen = 3, minPepScore = 0, mi
   datTab <- calculatePercentMatched(datTab)
   datTab <- calculatePeptideLengths(datTab)
   datTab <- lengthFilter(datTab, minLen = minPepLen, maxLen = 40)
-  if ("Sc.1" %in% names(datTab) & "Sc.1" %in% names(datTab)) {
+  if ("Sc.1" %in% names(datTab) & "Sc.2" %in% names(datTab)) {
     datTab <- scoreFilter(datTab, minScore = minPepScore) }
   datTab <- datTab %>%
     filter(.data$Score.Diff >= minScoreDiff)
   if (nrow(datTab) == 0) {
     return(NULL) }
   datTab <- calculatePairs(datTab)
-  if ("numProdIons.1" %in% names(datTab) & "numProdIons.1" %in% names(datTab)) {
+  if ("numProdIons.1" %in% names(datTab) & "numProdIons.2" %in% names(datTab)) {
     datTab <- productIonFilter(datTab, minProducts.1 = minIons, minProducts.2 = minIons) }
   datTab <- datTab %>%
     filter(.data$xlinkedResPair != "0.decoy::0.decoy")
@@ -116,6 +121,8 @@ calculateDecoys <- function(datTab) {
 #' Determine residue, peptide,and protein pairs
 #'
 #' @param datTab Parsed CLMS search results.
+#' @param scalingFactor An integer describing how many times larger the decoy
+#'   database is than the target database.
 #' @return A data frame
 #' @export
 #'
@@ -125,18 +132,20 @@ calculatePairs <- function(datTab, scalingFactor = the$decoyScalingFactor){
       Acc.1 = as.character(.data$Acc.1),
       Acc.2 = as.character(.data$Acc.2),
       Acc.1.w = case_when(
-        str_detect(Acc.1, "(^r[[:digit:]]_|^dec|^DECOY)") ~ str_c("decoy@", Protein.1),
-        T ~ Acc.1),
+        stringr::str_detect(.data$Acc.1, "(^r[[:digit:]]_|^dec|^DECOY)") ~
+          stringr::str_c("decoy@", .data$Protein.1),
+        TRUE ~ .data$Acc.1),
       Acc.2.w = case_when(
-        str_detect(Acc.2, "(^r[[:digit:]]_|^dec|^DECOY)") ~ str_c("decoy@", Protein.2),
-        T ~ Acc.2)
+        stringr::str_detect(.data$Acc.2, "(^r[[:digit:]]_|^dec|^DECOY)") ~
+          stringr::str_c("decoy@", .data$Protein.2),
+        TRUE ~ .data$Acc.2)
     )
   datTab$xlinkedProtPair <- ifelse(datTab$Acc.1.w <= datTab$Acc.2.w,
                                    paste(datTab$Acc.1.w, datTab$Acc.2.w, sep="::"),
                                    paste(datTab$Acc.2.w, datTab$Acc.1.w, sep="::")
   )
   datTab <- datTab %>%
-    select(-Acc.1.w, -Acc.2.w)
+    select(-.data$Acc.1.w, -.data$Acc.2.w)
 # datTab <- datTab %>%
   #   mutate(Acc.1 = as.character(.data$Acc.1),
   #          Acc.2 = as.character(.data$Acc.2))
@@ -168,7 +177,7 @@ calculatePairs <- function(datTab, scalingFactor = the$decoyScalingFactor){
   datTab <- datTab %>%
     add_count(.data$xlinkedResPair, name="numCSM") %>%
     group_by(.data$xlinkedResPair) %>%
-    mutate(wtCSM = log1p(sum(Score.Diff >= 15))) %>%
+    mutate(wtCSM = log1p(sum(.data$Score.Diff >= 15))) %>%
     ungroup()
   uniqueProtCount <- datTab %>%
     select("xlinkedProtPair", "xlinkedResPair", "Score.Diff") %>%
@@ -177,9 +186,9 @@ calculatePairs <- function(datTab, scalingFactor = the$decoyScalingFactor){
     slice(1) %>%
     group_by(.data$xlinkedProtPair) %>%
     add_count(name = "numURP") %>%
-    mutate(wtURP = log1p(sum(Score.Diff >= 15))) %>%
+    mutate(wtURP = log1p(sum(.data$Score.Diff >= 15))) %>%
     ungroup() %>%
-    select(-Score.Diff)
+    select(-.data$Score.Diff)
   datTab <- left_join(select(datTab, -any_of(c("numURP", "wtURP"))), uniqueProtCount, by=c("xlinkedProtPair","xlinkedResPair"))
   if ("Module.1" %in% names(datTab) & "Module.2" %in% names(datTab)) {
     datTab <- datTab %>%
@@ -412,27 +421,11 @@ calculateDiagnosticPairsNonCleavable <- function(datTab) {
 #'
 #' @param msms.ions List of product ion matches found in Search Compare output
 #' @param pep.len Length of peptide
+#' @param max_missing Maximum number of missing cleavage positions allowed in a
+#'   gapped ion ladder.
 #' @return A numeric vector of bond cleavage indicies
 #' @seealso [calculateProductIons()]
-# getProductIonMatches <- function(msms.ions, pep.len) {
-#   # will break if pep.len > 99
-#   ions <- unlist(stringr::str_split(msms.ions, ";"))
-#   n_indicies <- stringr::str_extract_all(ions, "(?<=^[bc][\\*\\#]*)([0-9]+)(?!\\-)") %>%
-#   # n_indicies <- stringr::str_extract_all(ions, "(?<=^[bc][\\*\\#]?)([[0-9]]{1,2})(?!\\-)") %>%
-#     unlist %>%
-#     unique %>%
-#     as.numeric
-#   c_indicies <- stringr::str_extract_all(ions, "(?<=^[yz][\\*\\#]*)([0-9]+)(?!\\-)") %>%
-#   # c_indicies <- stringr::str_extract_all(ions, "(?<=^[yz][\\*\\#]?)([[0-9]]{1,2})(?!\\-)") %>%
-#     unlist %>%
-#     unique %>%
-#     as.numeric
-#   c_indicies <- pep.len - c_indicies %>%
-#     sort
-#   ion_indicies <- union(n_indicies, c_indicies) %>% sort
-#   return(ion_indicies)
-# }
-
+#'
 getProductIonMatches <- function(msms.ions, pep.len, max_missing = 1) {
   # Helper for empty / missing inputs
   empty_result <- function() {

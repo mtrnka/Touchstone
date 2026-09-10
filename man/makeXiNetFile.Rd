@@ -9,6 +9,8 @@ makeXiNetFile(datTab, flavor = "xiNet")
 }
 \arguments{
 \item{datTab}{Parsed CLMS search results.}
+
+\item{flavor}{Output column naming convention: \code{"xiNet"} or \code{"xiView"}.}
 }
 \value{
 A data frame

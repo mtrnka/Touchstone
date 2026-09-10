@@ -121,7 +121,7 @@ trainCrosslinkScore <- function(datTab,
                  "interInt" = x$interInt, "interHits" = x$interHits,
                  "corScore" = x$corScore)
     }) %>%
-    mutate(objFun = interInt * interHits * corScore) %>%
+    mutate(objFun = .data$interInt * .data$interHits * .data$corScore) %>%
     arrange(desc(.data$objFun))
   tuned.plot <- tuned %>%
     map_dfr(function(x) {
@@ -481,12 +481,16 @@ tuneSVM.helper <- function(datTab,
     summarize(inter.sum = sum(.data$inter), n= n(), inter.int = .data$inter.sum / n) %>%
     pull(.data$inter.int)
   top.inter.csms <- datTab.csm %>%
-    filter(Decoy=="Target",
-           xlinkClass=="interProtein") %>%
-    arrange(desc(Score.Diff))
+    filter(.data$Decoy == "Target",
+           .data$xlinkClass == "interProtein") %>%
+    arrange(desc(.data$Score.Diff))
   top.inter.csms <- top.inter.csms %>%
     slice(1:(nrow(top.inter.csms) / 2))
-  correlation_score <- 100 * cor(top.inter.csms$Score.Diff, top.inter.csms$SVM.score, method="spearman")
+  correlation_score <- 100 * stats::cor(
+    top.inter.csms$Score.Diff,
+    top.inter.csms$SVM.score,
+    method = "spearman"
+  )
 
   list("CSMs" = datTab.csm,
        "URPs" = datTab.urp,
@@ -676,7 +680,13 @@ trainClassifier <- function(datTab, params=NULL, scoreName="SVM.score",
 trainClassifier_parallel <- function(datTab, params=NA, scoreName="SVM.score",
                                      scalingFactor = the$decoyScalingFactor, targetER = 0.01,
                                      preFilterER.values = c(0.45, 0.35, 0.25)) {
-  requireNamespace(c("furrr","future"), quietly = TRUE)
+  if (!requireNamespace("furrr", quietly = TRUE) ||
+      !requireNamespace("future", quietly = TRUE)) {
+    stop(
+      "Packages 'furrr' and 'future' are required for parallel training.",
+      call. = FALSE
+    )
+  }
   # start.time = Sys.time()
 
   oopts <- options(future.globals.maxSize = 8000 * 1024^2)
@@ -885,4 +895,3 @@ check_training_df <- function(df, stage, response_col, feature_cols = NULL) {
 
   invisible(df)
 }
-
