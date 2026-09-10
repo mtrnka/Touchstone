@@ -253,7 +253,7 @@ calculatePairs <- function(datTab, scalingFactor = the$decoyScalingFactor){
                                    paste(datTab$Acc.2.w, datTab$Acc.1.w, sep="::")
   )
   datTab <- datTab %>%
-    select(-.data$Acc.1.w, -.data$Acc.2.w)
+    select(-"Acc.1.w", -"Acc.2.w")
 # datTab <- datTab %>%
   #   mutate(Acc.1 = as.character(.data$Acc.1),
   #          Acc.2 = as.character(.data$Acc.2))
@@ -296,7 +296,7 @@ calculatePairs <- function(datTab, scalingFactor = the$decoyScalingFactor){
     add_count(name = "numURP") %>%
     mutate(wtURP = log1p(sum(.data$Score.Diff >= 15))) %>%
     ungroup() %>%
-    select(-.data$Score.Diff)
+    select(-"Score.Diff")
   datTab <- left_join(select(datTab, -any_of(c("numURP", "wtURP"))), uniqueProtCount, by=c("xlinkedProtPair","xlinkedResPair"))
   if ("Module.1" %in% names(datTab) & "Module.2" %in% names(datTab)) {
     datTab <- datTab %>%
