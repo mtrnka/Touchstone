@@ -14,6 +14,10 @@
 #' @param cost_values Numeric vector of cost values used for hyperparameter tuning of the SVM model
 #' @param gamma_values Numeric vector of gamma values used for hyperparameter tuning of the SVM model
 #' @param sd_values Numeric vector of Score Diff values to use for prefilitering optimiziation.
+#' @param seed Integer seed used to make cross-fitting reproducible.
+#' @param splitBy Character vector naming columns whose rows must remain together
+#'   during cross-fitting. The default uses residue pairs when available, then a
+#'   spectrum identifier, and finally individual rows.
 #' @seealso [tuneSVM()], [tuneSVM.helper()], [buildSVM()]
 #' @returns A list containing all of the SVM models at different cost and gamma values
 #' as well as a summary table.
@@ -26,7 +30,9 @@ trainCrosslinkScore <- function(datTab,
                                 sampleNo = 20000,
                                 cost_values = c(1, 5, 10),
                                 gamma_values = c(0.01, 0.05, 0.1),
-                                sd_values = c(0,5,10,15,20)) {
+                                sd_values = c(0,5,10,15,20),
+                                seed = 1,
+                                splitBy = NULL) {
   datTab <- dplyr::ungroup(datTab)
 
   # feature selection
@@ -69,6 +75,8 @@ trainCrosslinkScore <- function(datTab,
       cost = 10,
       gamma = 0.1,
       kernel = "radial",
+      seed = seed,
+      splitBy = splitBy,
       fallback.threshold = min(sd_values, na.rm = TRUE)
     )
 
@@ -114,7 +122,9 @@ trainCrosslinkScore <- function(datTab,
                    targetER = targetER,
                    sampleNo = sampleNo,
                    cost_values = cost_values,
-                   gamma_values = gamma_values)
+                   gamma_values = gamma_values,
+                   seed = seed,
+                   splitBy = splitBy)
   tuned.parse <- tuned %>%
     purrr::imap_dfr(function(x,i) {
       data.frame("index" = i, "cost" = x$cost, "gamma" = x$gamma,
@@ -191,6 +201,8 @@ chooseScoreDiffPrefilter <- function(datTab,
                                      cost = 10,
                                      gamma = 0.1,
                                      kernel = "radial",
+                                     seed = 1,
+                                     splitBy = NULL,
                                      class.col = NULL,
                                      target.label = "Target",
                                      min.total = 500,
@@ -277,7 +289,9 @@ chooseScoreDiffPrefilter <- function(datTab,
           sampleNo = sampleNo,
           cost = cost,
           gamma = gamma,
-          kernel = kernel
+          kernel = kernel,
+          seed = seed,
+          splitBy = splitBy
         )
       },
       error = function(e) e
@@ -405,6 +419,9 @@ chooseScoreDiffPrefilter <- function(datTab,
 #' @param sampleNo Size of the training dataset (integer).
 #' @param cost_values Numeric vector of cost values used for hyperparameter tuning of the SVM model
 #' @param gamma_values Numeric vector of gamma values used for hyperparameter tuning of the SVM model
+#' @param seed Integer seed used to make cross-fitting reproducible.
+#' @param splitBy Character vector naming columns whose rows must remain together
+#'   during cross-fitting.
 #' @seealso [trainCrosslinkScore()], [tuneSVM.helper()], [buildSVM()]
 #' @returns A list containing all of the SVM models at different cost and gamma values.
 #' @export
@@ -415,7 +432,9 @@ tuneSVM <- function(datTab,
                     targetER = 0.01,
                     sampleNo = 20000,
                     cost_values = c(0.5, 1, 5, 10),
-                    gamma_values = c(0.01, 0.05, 0.1, 0.5)) {
+                    gamma_values = c(0.01, 0.05, 0.1, 0.5),
+                    seed = 1,
+                    splitBy = NULL) {
   param_grid <- expand.grid(cost=cost_values, gamma=gamma_values)
   param_grid$kernel = "radial"
   param_grid = bind_rows(param_grid, data.frame(cost=cost_values, gamma=23, kernel="linear"))
@@ -426,7 +445,9 @@ tuneSVM <- function(datTab,
                    scoreName=scoreName,
                    scalingFactor = scalingFactor,
                    sampleNo = sampleNo,
-                   cost, gamma, kernel)
+                   cost, gamma, kernel,
+                   seed = seed,
+                   splitBy = splitBy)
   })
   return(tuned)
 }
@@ -445,6 +466,9 @@ tuneSVM <- function(datTab,
 #' @param cost Cost value passed to `e1071::svm()`
 #' @param gamma Gamma value passed to `e1071::svm()`
 #' @param kernel Kernel value passed to `e1071::svm()`
+#' @param seed Integer seed used to make cross-fitting reproducible.
+#' @param splitBy Character vector naming columns whose rows must remain together
+#'   during cross-fitting.
 #' @seealso [trainCrosslinkScore()], [tuneSVM()], [buildSVM()]
 #' @returns A list containing the trained data at CSM and URP levels, score thresholds
 #' for the targetER, the error table and some other information used for tuning.
@@ -455,13 +479,17 @@ tuneSVM.helper <- function(datTab,
                            scoreName="SVM.score",
                            scalingFactor = the$decoyScalingFactor,
                            sampleNo = 20000,
-                           cost, gamma, kernel) {
+                           cost, gamma, kernel,
+                           seed = 1,
+                           splitBy = NULL) {
   datTab.csm <- buildSVM(datTab=datTab,
                          targetER=targetER,
                          params=params,
                          scoreName=scoreName,
                          sampleNo = sampleNo,
                          showTab = F,
+                         seed = seed,
+                         splitBy = splitBy,
                          cost=cost, gamma=gamma, kernel=kernel)
   datTab.urp <- bestResPair(datTab.csm)
   datTab.urp.thresh <- findSeparateThresholdsModelled(datTab.urp,
@@ -508,14 +536,21 @@ tuneSVM.helper <- function(datTab,
 }
 
 #' Basic function to build a new SVM classifier.  Doesn't do any feature selection or
-#' hyperparamter tuning. Build two separate SVM models on different subsets of the data
-#' and averages the results.
+#' hyperparamter tuning. Builds two separate SVM models on non-overlapping groups
+#' of the data and averages their out-of-training-group predictions.
 #'
 #' @param datTab Parsed CLMS search results.
 #' @param params Character vector specifying names of the features in `datTab` used to train model.
 #' @param scoreName Name for the new scoring function.
-#' @param sampleNo Size of the training dataset (integer).
+#' @param sampleNo Target maximum size of each training subset (integer).
+#'   A subset can exceed this target when necessary to keep a group intact or
+#'   retain both outcome classes.
 #' @param showTab print classificaiton table?
+#' @param seed Integer seed used to make cross-fitting reproducible. Use `NULL`
+#'   to use R's current random-number state.
+#' @param splitBy Character vector naming columns whose rows must remain together
+#'   during cross-fitting. The default uses `xlinkedResPair` when present, then
+#'   a spectrum identifier, and finally individual rows.
 #' @param ... paramters passed to `e1071:svm()` function
 #' @seealso [trainCrosslinkScore()], [tuneSVM.helper()], [tuneSVM()]
 #' @return A data frame, one column larger than the input containing the new score.
@@ -525,26 +560,26 @@ buildSVM <- function(datTab,
                      scoreName="SVM.score",
                      sampleNo = 20000,
                      showTab = F,
+                     seed = 1,
+                     splitBy = NULL,
                      ...) {
   datTab$massError <- abs(datTab$ppm - mean(datTab$ppm))
-  num.rows <- nrow(datTab)
-  if ((num.rows) < 40000L) {
-    sampleNo <- num.rows %/% 2
-  } else {
-    sampleNo <- 20000L
-  }
-  ind.1 <- sample(1:num.rows, sampleNo)
-  ind.2 <- sample(c(1:num.rows)[-1*ind.1], sampleNo)
+  split <- makeCrossfitSplit(
+    datTab,
+    sampleNo = sampleNo,
+    splitBy = splitBy,
+    seed = seed
+  )
+  ind.1 <- split$train.1
+  ind.2 <- split$train.2
   train.1 <- datTab[ind.1,]
   train.2 <- datTab[ind.2,]
-  test.1 <- datTab[-1 * ind.1,]
-  test.2 <- datTab[-1 * ind.2,]
   wghts.1 <- numeric(0)
   wghts.2 <- numeric(0)
-  wghts.1["Target"] <- table(test.1$Decoy2)["Decoy"] / sum(table(test.1$Decoy2),na.rm=T)
-  wghts.1["Decoy"] <- table(test.1$Decoy2)["Target"] / sum(table(test.1$Decoy2),na.rm=T)
-  wghts.2["Target"] <- table(test.2$Decoy2)["Decoy"] / sum(table(test.2$Decoy2),na.rm=T)
-  wghts.2["Decoy"] <- table(test.2$Decoy2)["Target"] / sum(table(test.2$Decoy2),na.rm=T)
+  wghts.1["Target"] <- table(train.1$Decoy2)["Decoy"] / sum(table(train.1$Decoy2),na.rm=T)
+  wghts.1["Decoy"] <- table(train.1$Decoy2)["Target"] / sum(table(train.1$Decoy2),na.rm=T)
+  wghts.2["Target"] <- table(train.2$Decoy2)["Decoy"] / sum(table(train.2$Decoy2),na.rm=T)
+  wghts.2["Decoy"] <- table(train.2$Decoy2)["Target"] / sum(table(train.2$Decoy2),na.rm=T)
 
   diagnoseSVMdata(
     train.df = train.1,
@@ -573,10 +608,14 @@ buildSVM <- function(datTab,
   p.2 <- stats::predict(fit.2, subset(datTab, select=params),decision.values=T)
   datTab$score.1 = as.numeric(attr(p.1, "decision.values"))
   datTab$score.2 = as.numeric(attr(p.2, "decision.values"))
-  if (stats::cor(datTab$Score.Diff, datTab$score.1) < 0) {datTab$score.1 <- -1 * datTab$score.1}
-  if (stats::cor(datTab$Score.Diff, datTab$score.2) < 0) {datTab$score.2 <- -1 * datTab$score.2}
-  datTab[ind.1, "score.1"] <- NA
-  datTab[ind.2, "score.2"] <- NA
+  datTab[!split$score.1, "score.1"] <- NA
+  datTab[!split$score.2, "score.2"] <- NA
+  if (stats::cor(datTab$Score.Diff, datTab$score.1, use = "complete.obs") < 0) {
+    datTab$score.1 <- -1 * datTab$score.1
+  }
+  if (stats::cor(datTab$Score.Diff, datTab$score.2, use = "complete.obs") < 0) {
+    datTab$score.2 <- -1 * datTab$score.2
+  }
   datTab[[scoreName]] <- purrr::map2_dbl(datTab$score.1, datTab$score.2, function(x, y) mean(c(x, y), na.rm=T))
   if (showTab) {
     tab <- table(datTab$Decoy2, datTab[[scoreName]] > 0)
@@ -584,6 +623,176 @@ buildSVM <- function(datTab,
     print(paste("specificity:", round(tab[1]/(tab[1]+tab[3]),2)))
   }
   return(datTab)
+}
+
+makeCrossfitSplit <- function(datTab,
+                              sampleNo = 20000,
+                              splitBy = NULL,
+                              seed = 1) {
+  n <- nrow(datTab)
+
+  if (n < 2) {
+    stop("At least two rows are required for cross-fitting.", call. = FALSE)
+  }
+
+  if (length(sampleNo) != 1 || is.na(sampleNo) || sampleNo < 1) {
+    stop("sampleNo must be one positive number.", call. = FALSE)
+  }
+
+  sampleNo <- as.integer(sampleNo)
+
+  if (is.null(splitBy)) {
+    splitBy <- dplyr::case_when(
+      "xlinkedResPair" %in% names(datTab) ~ list("xlinkedResPair"),
+      all(c("Fraction", "Spectrum") %in% names(datTab)) ~
+        list(c("Fraction", "Spectrum")),
+      all(c("Fraction", "MSMS.Info") %in% names(datTab)) ~
+        list(c("Fraction", "MSMS.Info")),
+      "Spectrum" %in% names(datTab) ~ list("Spectrum"),
+      "MSMS.Info" %in% names(datTab) ~ list("MSMS.Info"),
+      TRUE ~ list(character())
+    )[[1]]
+  }
+
+  missing.split.columns <- setdiff(splitBy, names(datTab))
+  if (length(missing.split.columns) > 0) {
+    stop(
+      "Cross-fitting group column(s) not found: ",
+      paste(missing.split.columns, collapse = ", "),
+      call. = FALSE
+    )
+  }
+
+  if (length(splitBy) == 0) {
+    group.id <- as.character(seq_len(n))
+  } else {
+    group.parts <- lapply(datTab[splitBy], function(x) {
+      x <- as.character(x)
+      encoded <- paste0(nchar(enc2utf8(x), type = "bytes"), ":", x)
+      encoded[is.na(x)] <- "-1:"
+      encoded
+    })
+    group.id <- do.call(paste, c(group.parts, sep = "|"))
+  }
+
+  group.rows <- split(seq_len(n), group.id)
+
+  if (length(group.rows) < 2) {
+    stop(
+      "Cross-fitting requires at least two distinct groups in splitBy.",
+      call. = FALSE
+    )
+  }
+
+  had.seed <- exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
+  if (had.seed) {
+    old.seed <- get(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
+  }
+  on.exit({
+    if (!is.null(seed)) {
+      if (had.seed) {
+        assign(".Random.seed", old.seed, envir = .GlobalEnv)
+      } else if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
+        rm(".Random.seed", envir = .GlobalEnv)
+      }
+    }
+  }, add = TRUE)
+
+  if (!is.null(seed)) {
+    set.seed(seed)
+  }
+
+  fold.groups <- list(character(), character())
+  fold.sizes <- c(0L, 0L)
+
+  group.strata <- if ("Decoy2" %in% names(datTab)) {
+    vapply(group.rows, function(rows) {
+      paste(sort(unique(as.character(datTab$Decoy2[rows]))), collapse = "|")
+    }, character(1))
+  } else {
+    stats::setNames(rep("all", length(group.rows)), names(group.rows))
+  }
+
+  strata <- split(names(group.rows), group.strata)
+
+  if ("Decoy2" %in% names(datTab) && any(lengths(strata) < 2)) {
+    sparse.strata <- names(strata)[lengths(strata) < 2]
+    stop(
+      "Cross-fitting requires at least two independent splitBy groups for ",
+      "each outcome. Insufficient groups for: ",
+      paste(sparse.strata, collapse = ", "),
+      ".",
+      call. = FALSE
+    )
+  }
+
+  for (stratum.groups in strata) {
+    shuffled.groups <- sample(stratum.groups, length(stratum.groups))
+    stratum.fold.sizes <- c(0L, 0L)
+
+    for (group in shuffled.groups) {
+      smallest.stratum.folds <- which(
+        stratum.fold.sizes == min(stratum.fold.sizes)
+      )
+      destination <- smallest.stratum.folds[
+        which.min(fold.sizes[smallest.stratum.folds])
+      ]
+      fold.groups[[destination]] <- c(fold.groups[[destination]], group)
+      group.size <- length(group.rows[[group]])
+      fold.sizes[destination] <- fold.sizes[destination] + group.size
+      stratum.fold.sizes[destination] <-
+        stratum.fold.sizes[destination] + group.size
+    }
+  }
+
+  limit.fold <- function(groups) {
+    if (sum(lengths(group.rows[groups])) <= sampleNo) {
+      return(groups)
+    }
+
+    groups.by.stratum <- split(groups, group.strata[groups])
+    groups.by.stratum <- lapply(groups.by.stratum, function(x) {
+      sample(x, length(x))
+    })
+
+    # Retain at least one independent group from every outcome class. This can
+    # exceed sampleNo when a single group is unusually large, but avoids
+    # creating an SVM training subset with a missing class.
+    selected <- vapply(groups.by.stratum, `[[`, character(1), 1)
+    selected.size <- sum(lengths(group.rows[selected]))
+    remaining <- unlist(lapply(groups.by.stratum, function(x) x[-1]),
+                        use.names = FALSE)
+
+    if (length(remaining) > 1) {
+      remaining <- sample(remaining, length(remaining))
+    }
+
+    for (group in remaining) {
+      proposed.size <- selected.size + length(group.rows[[group]])
+      if (abs(sampleNo - proposed.size) <= abs(sampleNo - selected.size)) {
+        selected <- c(selected, group)
+        selected.size <- proposed.size
+      }
+    }
+
+    selected
+  }
+
+  fold.groups <- lapply(fold.groups, limit.fold)
+  train.1 <- unlist(group.rows[fold.groups[[1]]], use.names = FALSE)
+  train.2 <- unlist(group.rows[fold.groups[[2]]], use.names = FALSE)
+
+  score.1 <- !group.id %in% fold.groups[[1]]
+  score.2 <- !group.id %in% fold.groups[[2]]
+
+  list(
+    train.1 = sort(train.1),
+    train.2 = sort(train.2),
+    score.1 = score.1,
+    score.2 = score.2,
+    group.id = group.id,
+    splitBy = splitBy
+  )
 }
 
 #' Automated function to select features, build SVM score, and perform hyper-parameter tuning

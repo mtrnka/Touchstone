@@ -14,7 +14,7 @@ tables with enough provenance to understand how each result was produced.
   common report-column selections.
 - [x] Add small, hand-checkable tests for decoy/FDR calculations, pair
   construction and summarization, and product-ion evidence.
-- [ ] Make model fitting reproducible: control randomness and prevent spectra
+- [x] Make model fitting reproducible: control randomness and prevent spectra
   or equivalent crosslinks from leaking across training and validation groups.
 - [ ] Define conservative feature profiles for approximately small (up to
   10--20 proteins), medium (20--200), and large (more than 200) systems. Treat

@@ -16,7 +16,9 @@ tuneSVM.helper(
   sampleNo = 20000,
   cost,
   gamma,
-  kernel
+  kernel,
+  seed = 1,
+  splitBy = NULL
 )
 }
 \arguments{
@@ -37,6 +39,11 @@ tuneSVM.helper(
 \item{gamma}{Gamma value passed to \code{e1071::svm()}}
 
 \item{kernel}{Kernel value passed to \code{e1071::svm()}}
+
+\item{seed}{Integer seed used to make cross-fitting reproducible.}
+
+\item{splitBy}{Character vector naming columns whose rows must remain together
+during cross-fitting.}
 }
 \value{
 A list containing the trained data at CSM and URP levels, score thresholds

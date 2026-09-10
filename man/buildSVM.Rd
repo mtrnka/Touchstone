@@ -3,8 +3,8 @@
 \name{buildSVM}
 \alias{buildSVM}
 \title{Basic function to build a new SVM classifier.  Doesn't do any feature selection or
-hyperparamter tuning. Build two separate SVM models on different subsets of the data
-and averages the results.}
+hyperparamter tuning. Builds two separate SVM models on non-overlapping groups
+of the data and averages their out-of-training-group predictions.}
 \usage{
 buildSVM(
   datTab,
@@ -12,6 +12,8 @@ buildSVM(
   scoreName = "SVM.score",
   sampleNo = 20000,
   showTab = F,
+  seed = 1,
+  splitBy = NULL,
   ...
 )
 }
@@ -22,9 +24,18 @@ buildSVM(
 
 \item{scoreName}{Name for the new scoring function.}
 
-\item{sampleNo}{Size of the training dataset (integer).}
+\item{sampleNo}{Target maximum size of each training subset (integer).
+A subset can exceed this target when necessary to keep a group intact or
+retain both outcome classes.}
 
 \item{showTab}{print classificaiton table?}
+
+\item{seed}{Integer seed used to make cross-fitting reproducible. Use \code{NULL}
+to use R's current random-number state.}
+
+\item{splitBy}{Character vector naming columns whose rows must remain together
+during cross-fitting. The default uses \code{xlinkedResPair} when present, then
+a spectrum identifier, and finally individual rows.}
 
 \item{...}{paramters passed to \code{e1071:svm()} function}
 }
@@ -33,8 +44,8 @@ A data frame, one column larger than the input containing the new score.
 }
 \description{
 Basic function to build a new SVM classifier.  Doesn't do any feature selection or
-hyperparamter tuning. Build two separate SVM models on different subsets of the data
-and averages the results.
+hyperparamter tuning. Builds two separate SVM models on non-overlapping groups
+of the data and averages their out-of-training-group predictions.
 }
 \seealso{
 \code{\link[=trainCrosslinkScore]{trainCrosslinkScore()}}, \code{\link[=tuneSVM.helper]{tuneSVM.helper()}}, \code{\link[=tuneSVM]{tuneSVM()}}

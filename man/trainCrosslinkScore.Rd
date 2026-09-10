@@ -18,7 +18,9 @@ trainCrosslinkScore(
   sampleNo = 20000,
   cost_values = c(1, 5, 10),
   gamma_values = c(0.01, 0.05, 0.1),
-  sd_values = c(0, 5, 10, 15, 20)
+  sd_values = c(0, 5, 10, 15, 20),
+  seed = 1,
+  splitBy = NULL
 )
 }
 \arguments{
@@ -39,6 +41,12 @@ trainCrosslinkScore(
 \item{gamma_values}{Numeric vector of gamma values used for hyperparameter tuning of the SVM model}
 
 \item{sd_values}{Numeric vector of Score Diff values to use for prefilitering optimiziation.}
+
+\item{seed}{Integer seed used to make cross-fitting reproducible.}
+
+\item{splitBy}{Character vector naming columns whose rows must remain together
+during cross-fitting. The default uses residue pairs when available, then a
+spectrum identifier, and finally individual rows.}
 }
 \value{
 A list containing all of the SVM models at different cost and gamma values
