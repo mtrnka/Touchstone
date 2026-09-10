@@ -8,6 +8,147 @@ if (getRversion() >= "2.15.1") {
   ))
 }
 
+#' Standardize Protein Prospector Search Compare column names
+#'
+#' Converts known Search Compare column-name variants to the canonical names
+#' used internally by Touchstone. Paired peptide/protein fields must occur
+#' exactly twice; ambiguous mappings are rejected rather than guessed.
+#'
+#' @param datTab A data frame read from a Protein Prospector Search Compare
+#'   export.
+#' @return `datTab` with standardized column names.
+#' @keywords internal
+standardizeProspectorColumns <- function(datTab) {
+  if (!is.data.frame(datTab)) {
+    stop("datTab must be a data frame.", call. = FALSE)
+  }
+
+  original_names <- names(datTab)
+  normalized_names <- original_names %>%
+    stringr::str_replace("_[12]$", "") %>%
+    stringr::str_replace_all("[[:space:]]", ".") %>%
+    stringr::str_replace_all("#", "Num") %>%
+    stringr::str_replace_all("%", "Perc")
+
+  # readr repairs duplicate names with suffixes such as "...5". Strip those
+  # suffixes only while matching; the final canonical names remain unique.
+  match_names <- stringr::str_remove(normalized_names, "\\.\\.\\.[0-9]+$")
+
+  pair_specs <- list(
+    list(
+      label = "accession",
+      pattern = "^(Acc|Acc\\.Num|Accession|Accession\\.Num)$",
+      canonical = c("Acc.1", "Acc.2"),
+      required = TRUE
+    ),
+    list(
+      label = "species",
+      pattern = "^Species$",
+      canonical = c("Species.1", "Species.2"),
+      required = FALSE
+    ),
+    list(
+      label = "protein name",
+      pattern = "^Protein\\.Name$",
+      canonical = c("Protein.1", "Protein.2"),
+      required = FALSE
+    ),
+    list(
+      label = "protein molecular weight",
+      pattern = "^Protein\\.MW$",
+      canonical = c("MW.1", "MW.2"),
+      required = FALSE
+    ),
+    list(
+      label = "protein length",
+      pattern = "^Protein\\.Length$",
+      canonical = c("Protein.len.1", "Protein.len.2"),
+      required = FALSE
+    ),
+    list(
+      label = "MSMS ions",
+      pattern = "^MSMS\\.Ions$",
+      canonical = c("MSMS.Ions.1", "MSMS.Ions.2"),
+      required = FALSE
+    ),
+    list(
+      label = "MSMS mass-to-charge values",
+      pattern = "^MSMS\\.M/Zs$",
+      canonical = c("MSMS.MZs.1", "MSMS.MZs.2"),
+      required = FALSE
+    ),
+    list(
+      label = "MSMS intensities",
+      pattern = "^MSMS\\.Intensities$",
+      canonical = c("MSMS.Intensities.1", "MSMS.Intensities.2"),
+      required = FALSE
+    ),
+    list(
+      label = "MSMS errors",
+      pattern = "^MSMS\\.Errors$",
+      canonical = c("MSMS.Errors.1", "MSMS.Errors.2"),
+      required = FALSE
+    ),
+    list(
+      label = "percent bond cleavage",
+      pattern = "^Perc\\.Bond\\.Cleavage$",
+      canonical = c("Perc.Bond.Cleavage.1", "Perc.Bond.Cleavage.2"),
+      required = FALSE
+    )
+  )
+
+  for (spec in pair_specs) {
+    canonical_present <- spec$canonical %in% normalized_names
+    positions <- which(stringr::str_detect(match_names, spec$pattern))
+
+    if (all(canonical_present) && length(positions) == 0) {
+      next
+    }
+
+    if (any(canonical_present)) {
+      stop(
+        "Ambiguous ", spec$label, " columns: canonical and unstandardized ",
+        "names were both found.",
+        call. = FALSE
+      )
+    }
+
+    if (length(positions) == 0 && !spec$required) {
+      next
+    }
+
+    if (length(positions) != 2) {
+      matched <- if (length(positions) == 0) {
+        "none"
+      } else {
+        paste(original_names[positions], collapse = ", ")
+      }
+
+      stop(
+        "Expected exactly two ", spec$label, " columns, but found ",
+        length(positions), ": ", matched, ".",
+        call. = FALSE
+      )
+    }
+
+    normalized_names[positions] <- spec$canonical
+    match_names[positions] <- spec$canonical
+  }
+
+  duplicate_names <- unique(normalized_names[duplicated(normalized_names)])
+  if (length(duplicate_names) > 0) {
+    stop(
+      "Column standardization produced duplicate name(s): ",
+      paste(duplicate_names, collapse = ", "),
+      ".",
+      call. = FALSE
+    )
+  }
+
+  names(datTab) <- normalized_names
+  datTab
+}
+
 #' Read Search Compare Output from Protein Prospector
 #'
 #' Function for importing Crosslinked Search Compare output into Touchstone.
@@ -24,51 +165,18 @@ if (getRversion() >= "2.15.1") {
 #'
 readProspectorXLOutput <- function(inputFile, minPepLen = 3, minPepScore = 0, minScoreDiff = 0, minIons = 0){
   datTab <- readr::read_tsv(inputFile, guess_max = 10000)
-  header <- names(datTab) %>%
-    stringr::str_replace("_[[0-9]]$", "") %>%
-    stringr::str_replace_all("[[:space:]]",".") %>%
-    stringr::str_replace_all("#", "Num") %>%
-    stringr::str_replace_all("%", "Perc")
-  acc_pos <- stringr::str_which(header, "Acc")
-  header[acc_pos] <- c("Acc.1", "Acc.2")
-  spec_pos <- stringr::str_which(header, "Species")
-  header[spec_pos] <- c("Species.1", "Species.2")
-  prot_pos <- stringr::str_which(header, "Protein.Name")
-  header[prot_pos] <- c("Protein.1", "Protein.2")
-  if (sum(stringr::str_detect(header, "Protein.MW")) == 2) {
-    mw_pos <- stringr::str_which(header, "Protein.MW")
-    header[mw_pos] <- c("MW.1", "MW.2")
-  }
-  if (sum(stringr::str_detect(header, "Protein.Length")) == 2) {
-    len_pos <- stringr::str_which(header, "Protein.Length")
-    header[len_pos] <- c("Protein.len.1", "Protein.len.2")
-  }
-  if (sum(stringr::str_detect(header, "MSMS.Ions")) == 2) {
-    len_pos <- stringr::str_which(header, "MSMS.Ions")
-    header[len_pos] <- c("MSMS.Ions.1", "MSMS.Ions.2")
-  }
-  if (sum(stringr::str_detect(header, "MSMS.M/Zs")) == 2) {
-    len_pos <- stringr::str_which(header, "MSMS.M/Zs")
-    header[len_pos] <- c("MSMS.MZs.1", "MSMS.MZs.2")
-  }
-  if (sum(stringr::str_detect(header, "MSMS.Intensities")) == 2) {
-    len_pos <- stringr::str_which(header, "MSMS.Intensities")
-    header[len_pos] <- c("MSMS.Intensities.1", "MSMS.Intensities.2")
-  }
-  if (sum(stringr::str_detect(header, "MSMS.Errors")) == 2) {
-    len_pos <- stringr::str_which(header, "MSMS.Errors")
-    header[len_pos] <- c("MSMS.Errors.1", "MSMS.Errors.2")
-  }
-  if (sum(stringr::str_detect(header, "Perc.Bond.Cleavage")) == 2) {
-    len_pos <- stringr::str_which(header, "Perc.Bond.Cleavage")
-    header[len_pos] <- c("Perc.Bond.Cleavage.1", "Perc.Bond.Cleavage.2")
-  }
-  names(datTab) <- header
+  datTab <- standardizeProspectorColumns(datTab)
   if (!"Spectrum" %in% names(datTab)) {
     datTab$Spectrum <- 1
   }
   if (!"distance" %in% names(datTab)) {
     datTab$distance <- NA_real_
+  }
+  if (!"Protein.1" %in% names(datTab)) {
+    datTab$Protein.1 <- datTab$Acc.1
+  }
+  if (!"Protein.2" %in% names(datTab)) {
+    datTab$Protein.2 <- datTab$Acc.2
   }
   datTab <- datTab %>% mutate(
     Acc.1 = as.character(.data$Acc.1),
@@ -273,7 +381,7 @@ calculatePercentMatched <- function(datTab) {
     datTab$percMatched <- datTab$Match.Int
   } else if ("Num.Pks" %in% names(datTab) & "Num.Unmat" %in% names(datTab)) {
     num.Matched <- datTab$Num.Pks - datTab$Num.Unmat
-    datTab$percMatch <- num.Matched / datTab$Num.Pks
+    datTab$percMatched <- num.Matched / datTab$Num.Pks
   }
   return(datTab)
 }
