@@ -8,7 +8,8 @@ plotFDRHits(
   training,
   targetER = NULL,
   maxFDR = 0.05,
-  linkClass = c("inter", "intra")
+  linkClass = c("inter", "intra"),
+  showRaw = TRUE
 )
 }
 \arguments{
@@ -21,6 +22,9 @@ uses the value stored in a \code{trainCrosslinkScore()} result.}
 \item{maxFDR}{Largest FDR value displayed.}
 
 \item{linkClass}{Plot \code{"inter"} or \code{"intra"} protein crosslinks.}
+
+\item{showRaw}{Show the raw empirical FDR-versus-hit path faintly behind the
+best-attainable envelope.}
 }
 \value{
 A \code{ggplot2} plot.
@@ -28,6 +32,9 @@ A \code{ggplot2} plot.
 \description{
 Creates the faceted diagnostic plot formerly printed automatically by
 \code{trainCrosslinkScore()}. Linear and radial/gamma model families occupy
-separate facets, and color denotes SVM cost. Weak candidates are retained so
+separate facets, and color denotes SVM cost. The emphasized curve is the
+best-attainable envelope: for each FDR allowance, it shows the greatest hit
+count observed at or below that FDR. This removes dominated zigzags without
+statistically smoothing or inventing values. Weak candidates are retained so
 failed or unstable model families remain visible during inspection.
 }

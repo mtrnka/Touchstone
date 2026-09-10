@@ -225,7 +225,10 @@ print.touchstone_training <- function(x, ...) {
 #'
 #' Creates the faceted diagnostic plot formerly printed automatically by
 #' `trainCrosslinkScore()`. Linear and radial/gamma model families occupy
-#' separate facets, and color denotes SVM cost. Weak candidates are retained so
+#' separate facets, and color denotes SVM cost. The emphasized curve is the
+#' best-attainable envelope: for each FDR allowance, it shows the greatest hit
+#' count observed at or below that FDR. This removes dominated zigzags without
+#' statistically smoothing or inventing values. Weak candidates are retained so
 #' failed or unstable model families remain visible during inspection.
 #'
 #' @param training Result returned by `trainCrosslinkScore()`, or the model list
@@ -234,12 +237,15 @@ print.touchstone_training <- function(x, ...) {
 #'   uses the value stored in a `trainCrosslinkScore()` result.
 #' @param maxFDR Largest FDR value displayed.
 #' @param linkClass Plot `"inter"` or `"intra"` protein crosslinks.
+#' @param showRaw Show the raw empirical FDR-versus-hit path faintly behind the
+#'   best-attainable envelope.
 #' @return A `ggplot2` plot.
 #' @export
 plotFDRHits <- function(training,
                         targetER = NULL,
                         maxFDR = 0.05,
-                        linkClass = c("inter", "intra")) {
+                        linkClass = c("inter", "intra"),
+                        showRaw = TRUE) {
   linkClass <- match.arg(linkClass)
 
   if (inherits(training, "touchstone_training")) {
@@ -301,12 +307,31 @@ plotFDRHits <- function(training,
 
   plot.data$model <- factor(plot.data$model, levels = unique(plot.data$model))
 
-  ggplot2::ggplot(
-    plot.data,
+  frontier.data <- plot.data %>%
+    group_by(.data$candidate, .data$model, .data$cost, .data$fdr) %>%
+    summarize(hits = max(.data$hits), .groups = "drop") %>%
+    arrange(.data$candidate, .data$fdr) %>%
+    group_by(.data$candidate) %>%
+    mutate(hits = cummax(.data$hits)) %>%
+    ungroup()
+
+  result <- ggplot2::ggplot(
+    frontier.data,
     ggplot2::aes(x = .data$fdr, y = .data$hits,
                  color = .data$cost, group = .data$candidate)
-  ) +
-    ggplot2::geom_line(linewidth = 1.1) +
+  )
+
+  if (showRaw) {
+    result <- result +
+      ggplot2::geom_line(
+        data = plot.data,
+        linewidth = 0.45,
+        alpha = 0.25
+      )
+  }
+
+  result +
+    ggplot2::geom_step(linewidth = 1.1, direction = "hv") +
     ggplot2::geom_vline(xintercept = targetER, color = "red") +
     ggplot2::scale_color_viridis_d(option = "C", name = "Cost") +
     ggplot2::facet_grid(rows = ggplot2::vars(.data$model), scales = "free_y") +

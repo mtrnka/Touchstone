@@ -32,7 +32,7 @@ test_that("FDR-versus-hit plots retain weak candidates in separate facets", {
 
   models <- list(
     make_model("linear", NA_real_, 1, c(20, 18, 15, 12)),
-    make_model("radial", 0.1, 1, c(2, 1, 1, 1))
+    make_model("radial", 0.1, 1, c(2, 4, 1, 3))
   )
   training <- structure(
     list(models = models, settings = list(targetER = 0.01)),
@@ -47,6 +47,11 @@ test_that("FDR-versus-hit plots retain weak candidates in separate facets", {
     as.character(unique(plot$data$model)),
     c("linear", "radial (gamma = 0.1)")
   )
-  expect_true(any(plot$data$hits == 1))
-})
+  radial.frontier <- plot$data$hits[as.character(plot$data$model) != "linear"]
+  expect_true(all(diff(radial.frontier) >= 0))
+  expect_equal(radial.frontier, c(2, 4, 4, 4))
+  expect_length(plot$layers, 3)
 
+  plot.without.raw <- plotFDRHits(training, showRaw = FALSE)
+  expect_length(plot.without.raw$layers, 2)
+})
