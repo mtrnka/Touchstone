@@ -8,7 +8,7 @@ generateDecoyTable(
   datTab,
   targetER = 0.01,
   scalingFactor = the$decoyScalingFactor,
-  classifier = .data$SVM.score,
+  classifier = "SVM.score",
   plot = T
 )
 }

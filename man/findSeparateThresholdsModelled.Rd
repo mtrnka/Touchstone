@@ -9,7 +9,8 @@ findSeparateThresholdsModelled(
   targetER = 0.01,
   minThreshold = -5,
   scalingFactor = the$decoyScalingFactor,
-  plot = T
+  plot = T,
+  classifier = "SVM.score"
 )
 }
 \arguments{
@@ -22,6 +23,8 @@ findSeparateThresholdsModelled(
 \item{scalingFactor}{k, multiple by which which decoy DB is larger than target DB}
 
 \item{plot}{Show decoy table plot?}
+
+\item{classifier}{Column name in \code{datTab} used as the classifier to rank hits.}
 }
 \value{
 A list of inter and intra-protein thresholds to give the desired error rate.

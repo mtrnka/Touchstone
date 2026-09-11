@@ -29,20 +29,19 @@ test_that("candidate selection prefers correlation within near-best recovery", {
 
   selection <- touchstone:::selectSVMCandidates(candidates)
 
-  expect_identical(selection$recommendedIndex, 2L)
-  expect_identical(selection$recommendedByKernel$linear, 2L)
-  expect_identical(selection$recommendedByKernel$radial, 4L)
-  expect_true(selection$candidates$recommendedWithinKernel[2])
-  expect_true(selection$candidates$recommendedWithinKernel[4])
+  expect_identical(selection$recommended, 2L)
+  expect_identical(selection$recommendedRadial, 4L)
   expect_true(selection$candidates$recommended[2])
+  expect_true(selection$candidates$recommendedRadial[4])
   expect_false(selection$candidates$recommended[3])
   expect_identical(
     selection$candidates$nearBestRecovery,
     c(FALSE, TRUE, TRUE, TRUE)
   )
+  expect_identical(selection$candidates$index, 1:4)
 })
 
-test_that("candidate selection falls back to radial when linear is ineligible", {
+test_that("radial recommendation remains separate when linear is ineligible", {
   candidates <- tibble::tibble(
     index = 1:3,
     kernel = c("linear", "radial", "radial"),
@@ -56,9 +55,8 @@ test_that("candidate selection falls back to radial when linear is ineligible", 
 
   selection <- touchstone:::selectSVMCandidates(candidates)
 
-  expect_identical(selection$recommendedIndex, 3L)
-  expect_true(is.na(selection$recommendedByKernel$linear))
-  expect_identical(selection$recommendedByKernel$radial, 3L)
+  expect_true(is.na(selection$recommended))
+  expect_identical(selection$recommendedRadial, 3L)
 })
 
 test_that("recovery fraction prevents large recovery sacrifices", {
@@ -78,7 +76,8 @@ test_that("recovery fraction prevents large recovery sacrifices", {
     recoveryFraction = 0.9
   )
 
-  expect_identical(selection$recommendedIndex, 2L)
+  expect_true(is.na(selection$recommended))
+  expect_identical(selection$recommendedRadial, 2L)
   expect_identical(
     selection$candidates$nearBestRecovery,
     c(TRUE, TRUE, FALSE)

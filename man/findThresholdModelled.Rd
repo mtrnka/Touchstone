@@ -9,7 +9,8 @@ findThresholdModelled(
   targetER = 0.01,
   minThreshold = -5,
   scalingFactor = the$decoyScalingFactor,
-  ...
+  ...,
+  classifier = "SVM.score"
 )
 }
 \arguments{
@@ -22,6 +23,8 @@ findThresholdModelled(
 \item{scalingFactor}{An integer k. The multiple by which decoy DB is larger than target DB.}
 
 \item{...}{Additional params passed by calling function.}
+
+\item{classifier}{Column name in \code{datTab} used as the classifier to rank hits.}
 }
 \value{
 A list with the threshold and calculated FDR at this threshold

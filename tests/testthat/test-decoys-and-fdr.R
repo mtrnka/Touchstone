@@ -58,3 +58,121 @@ test_that("negative mixed-decoy estimates use the documented correction", {
   expect_equal(fractions, c(TT = 20, ftTT = 0, ffTT = 0.5))
 })
 
+test_that("countDecoys uses an explicitly supplied scaling factor", {
+  scored <- tibble::tibble(
+    xlinkClass = c("interProtein", "interProtein"),
+    Decoy = c("Target", "Decoy")
+  )
+  observed <- new.env(parent = emptyenv())
+
+  testthat::local_mocked_bindings(
+    deScaler = function(datTab, scalingFactor) {
+      observed$scalingFactor <- scalingFactor
+      datTab
+    },
+    .package = "touchstone"
+  )
+
+  countDecoys(scored, scalingFactor = 5)
+
+  expect_identical(observed$scalingFactor, 5)
+})
+
+test_that("countDecoys accepts prepared results and their classifier", {
+  scored <- data.frame(
+    xlinkClass = c("interProtein", "interProtein", "intraProtein"),
+    Decoy = factor(
+      c("Target", "Decoy", "Target"),
+      levels = c("DoubleDecoy", "Decoy", "Target")
+    ),
+    SVM.score = c(10, 10, 10),
+    experimental.score = c(2, -2, 2)
+  )
+  prepared <- structure(
+    list(
+      data = scored,
+      thresholds = list(intraThresh = 0, interThresh = 0),
+      settings = list(scalingFactor = 1, classifier = "experimental.score")
+    ),
+    class = "touchstone_results"
+  )
+
+  expected <- countDecoys(
+    scored,
+    threshold = prepared$thresholds,
+    classifier = "experimental.score",
+    scalingFactor = 1
+  )
+
+  expect_identical(countDecoys(prepared), expected)
+})
+
+test_that("calculateFDR accepts prepared Touchstone results", {
+  scored <- data.frame(
+    Decoy = factor(
+      c(rep("DoubleDecoy", 4), rep("Decoy", 10), rep("Target", 100)),
+      levels = c("DoubleDecoy", "Decoy", "Target")
+    ),
+    xlinkClass = "interProtein",
+    SVM.score = 1
+  )
+  prepared <- structure(
+    list(
+      data = scored,
+      thresholds = list(intraThresh = 0, interThresh = 0),
+      settings = list(scalingFactor = 2)
+    ),
+    class = "touchstone_results"
+  )
+
+  expect_equal(calculateFDR(prepared), 0.04)
+  expect_equal(
+    calculateFDR(
+      prepared,
+      threshold = list(intraThresh = 0, interThresh = 0),
+      scalingFactor = 2
+    ),
+    0.04
+  )
+})
+
+test_that("calculateFDR uses the classifier stored in prepared results", {
+  scored <- data.frame(
+    Decoy = factor(
+      c(rep("DoubleDecoy", 4), rep("Decoy", 10), rep("Target", 100)),
+      levels = c("DoubleDecoy", "Decoy", "Target")
+    ),
+    xlinkClass = "interProtein",
+    experimental.score = 1
+  )
+  prepared <- structure(
+    list(
+      data = scored,
+      thresholds = list(intraThresh = 0, interThresh = 0),
+      settings = list(scalingFactor = 2, classifier = "experimental.score")
+    ),
+    class = "touchstone_results"
+  )
+
+  expect_equal(calculateFDR(prepared), 0.04)
+})
+
+test_that("classification accepts default, bare, and character score columns", {
+  scored <- data.frame(
+    xlinkClass = c("interProtein", "intraProtein"),
+    SVM.score = c(2, -2),
+    Score.Diff = c(-2, 2)
+  )
+  thresholds <- list(interThresh = 0, intraThresh = 0)
+  score.column <- "Score.Diff"
+
+  default.result <- classifyDataset(scored, thresholds)
+  bare.result <- classifyDataset(scored, thresholds, classifier = Score.Diff)
+  character.result <- classifyDataset(
+    scored, thresholds, classifier = score.column
+  )
+
+  expect_identical(default.result$SVM.score, 2)
+  expect_identical(bare.result$Score.Diff, 2)
+  expect_identical(character.result$Score.Diff, 2)
+})

@@ -1,10 +1,27 @@
+.classifierName <- function(classifier) {
+  expression <- rlang::quo_get_expr(classifier)
+  value <- tryCatch(
+    rlang::eval_tidy(classifier),
+    error = function(e) NULL
+  )
+  if (is.character(value) && length(value) == 1 && !is.na(value)) {
+    return(value)
+  }
+  if (rlang::is_symbol(expression)) {
+    return(rlang::as_name(expression))
+  }
+  stop("classifier must identify one score column.", call. = FALSE)
+}
+
 #' Calculate FDR for a dataset above inter and intra-protein score thresholds
 #'
 #' `calculateFDR()` estimates the FDR for a dataset based on counting the number
 #' of decoy hits. Treats inter- and intra-protein hits separately. If the
 #' parameter `separateThresh` is provided it first thresholds the data.
 #'
-#' @param datTab Parsed CLMS search results.
+#' @param datTab Parsed CLMS search results, or a `touchstone_results` object
+#'   returned by [prepareCrosslinkResults()]. For a results object, its data,
+#'   thresholds, scaling factor, and classifier are used by default.
 #' @param threshold A list or a numeric of length 1. List must contain either `globalThresh` or both `interThresh` and `intraThresh` numeric elements.
 #' @param classifier Column name in `datTab` used as the classifier to use to rank hits.
 #' @param scalingFactor An integer k. The multiple by which decoy DB is larger than target DB
@@ -15,8 +32,22 @@ calculateFDR <- function(datTab,
                          threshold=list(intraThresh=-100,interThresh=-100),
                          classifier="SVM.score",
                          scalingFactor=the$decoyScalingFactor) {
-  classifier.quo <- enquo(classifier)
-  datTab <- classifyDataset(datTab, threshold=threshold, classifier={{ classifier.quo }})
+  classifier.missing <- missing(classifier)
+  if (inherits(datTab, "touchstone_results")) {
+    prepared <- datTab
+    if (missing(threshold)) {
+      threshold <- prepared$thresholds
+    }
+    if (missing(scalingFactor)) {
+      scalingFactor <- prepared$settings$scalingFactor
+    }
+    if (classifier.missing && !is.null(prepared$settings$classifier)) {
+      classifier <- prepared$settings$classifier
+    }
+    datTab <- prepared$data
+  }
+  classifier <- .classifierName(rlang::enquo(classifier))
+  datTab <- classifyDataset(datTab, threshold=threshold, classifier=classifier)
   decoyFractions <- calculateDecoyFractions(datTab, scalingFactor)
   fdr <- (decoyFractions["ffTT"] + decoyFractions["ftTT"]) / decoyFractions["TT"]
   names(fdr) <- NULL
@@ -134,16 +165,17 @@ calculateDecoyFractions <- function(datTab, scalingFactor=the$decoyScalingFactor
 generateDecoyTable <- function(datTab,
                                targetER=0.01,
                                scalingFactor = the$decoyScalingFactor,
-                               classifier=.data$SVM.score,
+                               classifier="SVM.score",
                                plot=T) {
-  class = datTab %>% pull({{classifier}})
+  classifier <- .classifierName(rlang::enquo(classifier))
+  class = datTab[[classifier]]
   class.min = floor(min(class))
   class.max = ceiling(max(class))
   range.spacing <- abs(class.max - class.min) / 500
   class.range <- seq(class.min, class.max-range.spacing, by=range.spacing)
   decTable <- class.range %>%
     purrr::map_dfr(function(x) {
-      datTab <- datTab %>% filter({{classifier}} >= x, .data$xlinkClass=="interProtein")
+      datTab <- datTab %>% filter(.data[[classifier]] >= x, .data$xlinkClass=="interProtein")
       numDecs <- calculateDecoyFractions(datTab, scalingFactor = scalingFactor)
       tibble(thresh = x, TT = numDecs["TT"], ftTT = numDecs["ftTT"], ffTT = numDecs["ffTT"])
     })
@@ -263,12 +295,22 @@ generateErrorTable <- function(datTab,
 #' @param minThreshold Minimum acceptable SVM.score threshold.
 #' @param scalingFactor An integer k. The multiple by which decoy DB is larger than target DB.
 #' @param ... Additional params passed by calling function.
+#' @param classifier Column name in `datTab` used as the classifier to rank hits.
 #' @return A list with the threshold and calculated FDR at this threshold
 #' @seealso [findThreshold()], [findSeparateThresholds()]
 #' @export
 #'
-findThresholdModelled <- function(datTab, targetER=0.01, minThreshold=-5, scalingFactor = the$decoyScalingFactor, ...) {
-  num.hits <- generateDecoyTable(datTab, targetER=targetER, scalingFactor = scalingFactor, ...)
+findThresholdModelled <- function(datTab, targetER=0.01, minThreshold=-5,
+                                  scalingFactor = the$decoyScalingFactor,
+                                  ..., classifier="SVM.score") {
+  classifier <- .classifierName(rlang::enquo(classifier))
+  num.hits <- generateDecoyTable(
+    datTab,
+    targetER = targetER,
+    scalingFactor = scalingFactor,
+    classifier = classifier,
+    ...
+  )
   nearestScore <- which.min(abs(num.hits$fdr - targetER))
   threshold = num.hits$thresh[nearestScore]
   modelledFDR = num.hits$fdr[nearestScore]
@@ -355,17 +397,31 @@ findSeparateThresholds <- function(datTab, targetER=0.01, minThreshold=-5,
 #' @param minThreshold Minimum acceptable SVM.score threshold.
 #' @param scalingFactor k, multiple by which which decoy DB is larger than target DB
 #' @param plot Show decoy table plot?
+#' @param classifier Column name in `datTab` used as the classifier to rank hits.
 #' @return A list of inter and intra-protein thresholds to give the desired error rate.
 #' @seealso [findThreshold()], [findThresholdModelled()], [findSeparateThresholds()]
 #' @export
 #'
-findSeparateThresholdsModelled <- function(datTab, targetER=0.01, minThreshold=-5, scalingFactor=the$decoyScalingFactor, plot=T) {
+findSeparateThresholdsModelled <- function(datTab, targetER=0.01, minThreshold=-5,
+                                           scalingFactor=the$decoyScalingFactor,
+                                           plot=T,
+                                           classifier="SVM.score") {
+  classifier <- .classifierName(rlang::enquo(classifier))
   interTab <- datTab %>%
     filter(.data$xlinkClass=="interProtein")
   intraTab <- datTab %>%
     filter(.data$xlinkClass=="intraProtein")
-  interThresh <- findThresholdModelled(interTab, targetER, minThreshold, scalingFactor=scalingFactor, plot=plot)[[1]]
-  intraThresh <- findThreshold(intraTab, targetER, minThreshold, classifier="SVM.score", scalingFactor=scalingFactor)[[1]]
+  interThresh <- findThresholdModelled(
+    interTab, targetER, minThreshold,
+    scalingFactor = scalingFactor,
+    plot = plot,
+    classifier = classifier
+  )[[1]]
+  intraThresh <- findThreshold(
+    intraTab, targetER, minThreshold,
+    classifier = classifier,
+    scalingFactor = scalingFactor
+  )[[1]]
   return(list("intraThresh"=intraThresh, "interThresh"=interThresh))
 }
 
@@ -384,14 +440,14 @@ findSeparateThresholdsModelled <- function(datTab, targetER=0.01, minThreshold=-
 #' @export
 #'
 classifyDataset <- function(datTab, threshold=list(), classifier = "SVM.score") {
-  classifier <- enquo(classifier)
+  classifier <- .classifierName(rlang::enquo(classifier))
   tryCatch(
     if (is.numeric(threshold) & length(threshold) == 1){
-      datTab <- classifySingleThreshold(datTab, singleThresh = threshold, classifier = {{ classifier }})
+      datTab <- classifySingleThreshold(datTab, singleThresh = threshold, classifier = classifier)
     } else if (is.list(threshold) & !is.null(threshold$globalThresh)) {
-      datTab <- classifySingleThreshold(datTab, singleThresh = threshold, classifier = {{ classifier }})
+      datTab <- classifySingleThreshold(datTab, singleThresh = threshold, classifier = classifier)
     } else if (is.list(threshold) & !is.null(threshold$intraThresh) & !is.null(threshold$interThresh)) {
-      datTab <- classifySeparateThresholds(datTab, separateThresh = threshold, classifier = {{ classifier }})
+      datTab <- classifySeparateThresholds(datTab, separateThresh = threshold, classifier = classifier)
     },
     error = function(e) {
       message(stringr::str_c("threshold must either be a single, numeric value or a list
@@ -412,13 +468,13 @@ classifyDataset <- function(datTab, threshold=list(), classifier = "SVM.score") 
 #' @export
 #'
 classifySingleThreshold <- function(datTab, singleThresh, classifier = "SVM.score") {
-  classifier <- enquo(classifier)
+  classifier <- .classifierName(rlang::enquo(classifier))
   if (is.numeric(singleThresh) & length(singleThresh==1)) {
     datTab <- datTab %>%
-      filter({{classifier}} >= singleThresh)
+      filter(.data[[classifier]] >= singleThresh)
   } else if (is.list(singleThresh) & !is.null(singleThresh$globalThresh)) {
     datTab <- datTab %>%
-      filter({{classifier}} >= singleThresh$globalThresh)
+      filter(.data[[classifier]] >= singleThresh$globalThresh)
   }
   #  datTab <- addXlinkCount(datTab)
   return(datTab)
@@ -434,11 +490,11 @@ classifySingleThreshold <- function(datTab, singleThresh, classifier = "SVM.scor
 #' @export
 #'
 classifySeparateThresholds <- function(datTab, separateThresh, classifier = "SVM.score") {
-  classifier = ensym(classifier)
+  classifier <- .classifierName(rlang::enquo(classifier))
   datTab <- datTab %>%
     filter(
-      (.data$xlinkClass == "interProtein" & {{classifier}} >= separateThresh$interThresh) |
-        (.data$xlinkClass == "intraProtein" & {{classifier}} >= separateThresh$intraThresh)
+      (.data$xlinkClass == "interProtein" & .data[[classifier]] >= separateThresh$interThresh) |
+        (.data$xlinkClass == "intraProtein" & .data[[classifier]] >= separateThresh$intraThresh)
     )
   #  datTab <- addXlinkCount(datTab)
   return(datTab)
@@ -496,14 +552,47 @@ generateErrorTable.sep <- function(datTab,
 
 #' Convenience function to display the confusion matrix.
 #'
-#' @param datTab Parsed CLMS search results.
+#' @param datTab Parsed CLMS search results, or a `touchstone_results` object
+#'   returned by [prepareCrosslinkResults()]. For a results object, its data,
+#'   thresholds, scaling factor, and classifier are used by default.
 #' @param threshold A list or a numeric of length 1. List must contain either `globalThresh` or both `interThresh` and `intraThresh` numeric elements.
 #' @param ... passed down to `classifyDataset()`
+#' @param scalingFactor Multiple by which the decoy database is larger than the
+#'   target database. Defaults to the value established by
+#'   [setDecoyScalingFactor()]. Placed after `...` to preserve existing
+#'   positional calls.
 #' @returns A data frame
 #' @export
-countDecoys <- function(datTab, threshold=NULL, ...) {
-  if (!is.null(threshold)) datTab <- classifyDataset(datTab, threshold, ...)
-  if (the$decoyScalingFactor != 1) datTab <- deScaler(datTab, scalingFactor = the$decoyScalingFactor)
+countDecoys <- function(datTab,
+                        threshold = NULL,
+                        ...,
+                        scalingFactor = the$decoyScalingFactor) {
+  threshold.missing <- missing(threshold)
+  scaling.missing <- missing(scalingFactor)
+  classifier.args <- list(...)
+  if (inherits(datTab, "touchstone_results")) {
+    prepared <- datTab
+    if (threshold.missing) {
+      threshold <- prepared$thresholds
+    }
+    if (scaling.missing) {
+      scalingFactor <- prepared$settings$scalingFactor
+    }
+    if (length(classifier.args) == 0 &&
+        !is.null(prepared$settings$classifier)) {
+      classifier.args$classifier <- prepared$settings$classifier
+    }
+    datTab <- prepared$data
+  }
+  if (!is.null(threshold)) {
+    datTab <- do.call(
+      classifyDataset,
+      c(list(datTab = datTab, threshold = threshold), classifier.args)
+    )
+  }
+  if (scalingFactor != 1) {
+    datTab <- deScaler(datTab, scalingFactor = scalingFactor)
+  }
   datTab.counted <- datTab %>%
     group_by(.data$xlinkClass, .data$Decoy, .add=T) %>%
     count() %>%

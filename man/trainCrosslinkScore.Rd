@@ -63,9 +63,11 @@ spectrum identifier, and finally individual rows.}
 \item{verbose}{Print progress and the candidate table.}
 }
 \value{
-A \code{touchstone_training} object containing the recommended candidate,
-the candidate audit table, all fitted candidates, prefilter information,
-and training settings.
+A \code{touchstone_training} object containing the recommended linear
+model, an optional recommended radial model, the candidate summary and
+fitted candidate models, prefilter information, and training settings.
+Scored CSMs, the URP evaluation table, and its thresholds are available
+within each fitted model.
 }
 \description{
 Performs feature selection, optional Score.Diff prefilter selection, and a
@@ -75,8 +77,8 @@ remain positively correlated with Score.Diff. Within each requested kernel
 family, candidates must retain a specified fraction of the best recovery;
 the recommendation then favors stronger correlation with Score.Diff, followed
 by average low-FDR recovery and less flexible hyperparameters. The overall
-recommendation prefers the best eligible linear model; it falls back to the
-best eligible radial model only when no linear candidate passes the checks.
+recommendation is the best eligible linear model. When radial kernels are
+requested, their separate recommendation is returned as \code{recommendedRadial}.
 }
 \seealso{
 \code{\link[=tuneSVM]{tuneSVM()}}, \code{\link[=tuneSVM.helper]{tuneSVM.helper()}}, \code{\link[=buildSVM]{buildSVM()}}
