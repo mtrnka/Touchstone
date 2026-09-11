@@ -386,11 +386,41 @@ formatXLTable <- function(datTab, msviewer=F, extraCols=NULL) {
 #' error rather than the artifically large number of decoys.
 #' @param datTab Parsed CLMS search results.
 #' @param scalingFactor The decoy scaling factor
+#' @param seed Integer seed used for reproducible decoy downsampling. Use
+#'   `NULL` for stochastic sampling. The caller's random-number state is
+#'   restored when the function finishes.
 #'
 #' @returns A data frame
 #' @export
 #'
-deScaler <- function(datTab, scalingFactor = the$decoyScalingFactor) {
+deScaler <- function(datTab,
+                     scalingFactor = the$decoyScalingFactor,
+                     seed = 1) {
+  if (!is.null(seed)) {
+    if (length(seed) != 1 || !is.finite(seed) || seed < 0 ||
+        seed > .Machine$integer.max ||
+        seed != as.integer(seed)) {
+      stop("seed must be NULL or one non-negative integer.", call. = FALSE)
+    }
+    seed <- as.integer(seed)
+    had.random.seed <- exists(".Random.seed", envir = globalenv(),
+                              inherits = FALSE)
+    if (had.random.seed) {
+      previous.random.seed <- get(".Random.seed", envir = globalenv(),
+                                  inherits = FALSE)
+    }
+    on.exit(
+      if (had.random.seed) {
+        assign(".Random.seed", previous.random.seed, envir = globalenv())
+      } else if (exists(".Random.seed", envir = globalenv(),
+                        inherits = FALSE)) {
+        rm(".Random.seed", envir = globalenv())
+      },
+      add = TRUE
+    )
+    set.seed(seed)
+  }
+
   datTab.t <- datTab %>% filter(.data$Decoy == "Target")
   datTab.d <- datTab %>% filter(.data$Decoy == "Decoy")
   datTab.dd <- datTab %>% filter(.data$Decoy == "DoubleDecoy")

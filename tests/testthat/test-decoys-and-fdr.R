@@ -66,7 +66,7 @@ test_that("countDecoys uses an explicitly supplied scaling factor", {
   observed <- new.env(parent = emptyenv())
 
   testthat::local_mocked_bindings(
-    deScaler = function(datTab, scalingFactor) {
+    deScaler = function(datTab, scalingFactor, ...) {
       observed$scalingFactor <- scalingFactor
       datTab
     },
@@ -76,6 +76,44 @@ test_that("countDecoys uses an explicitly supplied scaling factor", {
   countDecoys(scored, scalingFactor = 5)
 
   expect_identical(observed$scalingFactor, 5)
+})
+
+test_that("deScaler is reproducible without changing the caller RNG state", {
+  scored <- data.frame(
+    row = seq_len(30),
+    xlinkClass = rep(c("interProtein", "intraProtein"), 15),
+    Decoy = factor(
+      c(rep("Target", 10), rep("Decoy", 10), rep("DoubleDecoy", 10)),
+      levels = c("DoubleDecoy", "Decoy", "Target")
+    )
+  )
+
+  first <- deScaler(scored, scalingFactor = 2)
+  stats::runif(5)
+  second <- deScaler(scored, scalingFactor = 2)
+  expect_identical(first, second)
+
+  set.seed(917)
+  expected.next <- stats::runif(1)
+  set.seed(917)
+  deScaler(scored, scalingFactor = 2)
+  observed.next <- stats::runif(1)
+  expect_identical(observed.next, expected.next)
+})
+
+test_that("deScaler supports an explicit seed", {
+  scored <- data.frame(
+    row = seq_len(100),
+    Decoy = factor(
+      rep(c("Decoy", "DoubleDecoy"), each = 50),
+      levels = c("DoubleDecoy", "Decoy", "Target")
+    )
+  )
+
+  first <- deScaler(scored, scalingFactor = 2, seed = 11)
+  second <- deScaler(scored, scalingFactor = 2, seed = 12)
+
+  expect_false(identical(first$row, second$row))
 })
 
 test_that("countDecoys accepts prepared results and their classifier", {
