@@ -433,6 +433,8 @@ deScaler <- function(datTab,
 }
 
 #' Plots the score distributions of decoy and target crosslinked hits.
+#' Prepared results automatically add their summarization level and calculated
+#' FDR as a subtitle, independently of the user-supplied plot title.
 #'
 #' @param datTab Parsed CLMS search results, or a `touchstone_results` object
 #'   returned by [prepareCrosslinkResults()].
@@ -445,6 +447,12 @@ deScaler <- function(datTab,
 #' @param separateFacets Whether to plot intraProtein and interProtein hits in separate facets
 #' @param addLegend Whether to display the legend.
 #' @param title Title to plot.
+#' @param xLimits Optional numeric vector of length two giving the displayed
+#'   x-axis limits. The histogram is calculated from the complete data before
+#'   the view is zoomed.
+#' @param histogramPosition Display target and decoy histograms as overlapping
+#'   layers (`"overlap"`) or side by side using [ggplot2::position_dodge2()]
+#'   (`"dodge"`).
 #'
 #' @returns A ggplot object.
 #' @export
@@ -455,12 +463,57 @@ fdrPlots <- function(datTab,
                      scalingFactor = the$decoyScalingFactor,
                      separateFacets = T,
                      addLegend = T,
-                     title = "FDR plot") {
+                     title = "FDR plot",
+                     xLimits = NULL,
+                     histogramPosition = c("overlap", "dodge")) {
+  histogramPosition <- match.arg(histogramPosition)
+  metadata.subtitle <- NULL
+  if (!is.null(xLimits) &&
+      (length(xLimits) != 2 || any(!is.finite(xLimits)) ||
+       xLimits[[1]] >= xLimits[[2]])) {
+    stop("xLimits must be NULL or two increasing finite numbers.", call. = FALSE)
+  }
   threshold.missing <- missing(threshold)
   classifier.missing <- missing(classifier)
   scaling.missing <- missing(scalingFactor)
   if (inherits(datTab, "touchstone_results")) {
     prepared <- datTab
+    level.labels <- c(
+      csm = "CSM",
+      urp = "URP",
+      `peptide-pair` = "peptide-pair",
+      `protein-pair` = "protein-pair",
+      `module-pair` = "module-pair"
+    )
+    level <- prepared$summarizationLevel
+    if (!is.null(level)) {
+      level <- if (level %in% names(level.labels)) {
+        unname(level.labels[[level]])
+      } else {
+        as.character(level)
+      }
+    }
+    calculated.fdr <- prepared$fdr
+    metadata.parts <- character()
+    if (!is.null(level)) {
+      metadata.parts <- c(
+        metadata.parts,
+        paste0("Summarization level: ", level)
+      )
+    }
+    if (length(calculated.fdr) == 1 && is.finite(calculated.fdr)) {
+      metadata.parts <- c(
+        metadata.parts,
+        paste0(
+          "Calculated FDR: ",
+          formatC(100 * calculated.fdr, format = "f", digits = 2),
+          "%"
+        )
+      )
+    }
+    if (length(metadata.parts) > 0) {
+      metadata.subtitle <- paste(metadata.parts, collapse = " | ")
+    }
     if (threshold.missing) {
       threshold <- prepared$thresholds
     }
@@ -486,19 +539,29 @@ fdrPlots <- function(datTab,
   maxValue = ceiling(maxValue)
   stepSize = mmax((maxValue - minValue) / 100, 0.25)
   datTab <- deScaler(datTab, scalingFactor = scalingFactor)
-  decCounts <- sum(datTab$Decoy == "Decoy", na.rm = TRUE)
-  doubleCounts <- sum(datTab$Decoy == "DoubleDecoy", na.rm = TRUE)
-  decoy.levels <- if (doubleCounts > decCounts) {
-    c("Target", "DoubleDecoy", "Decoy")
-  } else {
-    c("Target", "Decoy", "DoubleDecoy")
-  }
+  decoy.classes <- c("Target", "Decoy", "DoubleDecoy")
+  decoy.counts <- vapply(
+    decoy.classes,
+    function(decoy.class) sum(datTab$Decoy == decoy.class, na.rm = TRUE),
+    numeric(1)
+  )
+  decoy.levels <- decoy.classes[order(-decoy.counts, seq_along(decoy.classes))]
   datTab <- datTab %>%
     mutate(Decoy = factor(as.character(.data$Decoy), levels = decoy.levels))
 
+  histogram.position <- if (histogramPosition == "dodge") {
+    ggplot2::position_dodge2(preserve = "single")
+  } else {
+    "identity"
+  }
+
   fdr.plot <- datTab %>%
     ggplot(aes(x=.data[[classifier]], fill=.data$Decoy, alpha=.data$xlinkClass)) +
-    geom_histogram(col="black", binwidth = stepSize, position="identity")
+    geom_histogram(
+      col = "black",
+      binwidth = stepSize,
+      position = histogram.position
+    )
   if (is(threshold, "list")) {
     if (!is.null(threshold$interThresh) & !is.null(threshold$intraThresh)) {
       fdr.plot <- fdr.plot +
@@ -518,15 +581,19 @@ fdrPlots <- function(datTab,
   }
   fdr.plot <- fdr.plot +
     theme_bw() +
-    xlim(minValue, maxValue) +
     scale_fill_manual(values=c("Target" = "lightblue",
                                "Decoy" = "salmon",
                                "DoubleDecoy" = "goldenrod1")) +
     scale_alpha_manual(values=c("interProtein" = 0.9, "intraProtein" = 0.4))
+  if (is.null(xLimits)) {
+    fdr.plot <- fdr.plot + xlim(minValue, maxValue)
+  } else {
+    fdr.plot <- fdr.plot + ggplot2::coord_cartesian(xlim = xLimits)
+  }
   if (!addLegend) {fdr.plot <- fdr.plot +
     theme(legend.position = "none") }
   fdr.plot <- fdr.plot +
-    ggtitle(title)
+    ggplot2::labs(title = title, subtitle = metadata.subtitle)
   suppressWarnings(plot(fdr.plot))
   invisible(fdr.plot)
 }

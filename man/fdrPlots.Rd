@@ -2,7 +2,9 @@
 % Please edit documentation in R/plottingAndhelper.R
 \name{fdrPlots}
 \alias{fdrPlots}
-\title{Plots the score distributions of decoy and target crosslinked hits.}
+\title{Plots the score distributions of decoy and target crosslinked hits.
+Prepared results automatically add their summarization level and calculated
+FDR as a subtitle, independently of the user-supplied plot title.}
 \usage{
 fdrPlots(
   datTab,
@@ -11,7 +13,9 @@ fdrPlots(
   scalingFactor = the$decoyScalingFactor,
   separateFacets = T,
   addLegend = T,
-  title = "FDR plot"
+  title = "FDR plot",
+  xLimits = NULL,
+  histogramPosition = c("overlap", "dodge")
 )
 }
 \arguments{
@@ -32,10 +36,20 @@ to the stored scaling factor.}
 \item{addLegend}{Whether to display the legend.}
 
 \item{title}{Title to plot.}
+
+\item{xLimits}{Optional numeric vector of length two giving the displayed
+x-axis limits. The histogram is calculated from the complete data before
+the view is zoomed.}
+
+\item{histogramPosition}{Display target and decoy histograms as overlapping
+layers (\code{"overlap"}) or side by side using \code{\link[ggplot2:position_dodge]{ggplot2::position_dodge2()}}
+(\code{"dodge"}).}
 }
 \value{
 A ggplot object.
 }
 \description{
 Plots the score distributions of decoy and target crosslinked hits.
+Prepared results automatically add their summarization level and calculated
+FDR as a subtitle, independently of the user-supplied plot title.
 }

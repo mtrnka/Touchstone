@@ -15,6 +15,8 @@ test_that("fdrPlots uses settings stored in prepared results", {
     list(
       data = scored,
       thresholds = list(intraThresh = 0.5, interThresh = -0.5),
+      fdr = 0.0123,
+      summarizationLevel = "urp",
       settings = list(
         classifier = "experimental.score",
         scalingFactor = 5
@@ -42,6 +44,10 @@ test_that("fdrPlots uses settings stored in prepared results", {
   expect_identical(plot$data$experimental.score, scored$experimental.score)
   expect_identical(observed$scalingFactor, 5)
   expect_setequal(reference.lines, c(0.5, -0.5))
+  expect_identical(
+    plot$labels$subtitle,
+    "Summarization level: URP | Calculated FDR: 1.23%"
+  )
 })
 
 test_that("fdrPlots retains its data-frame interface", {
@@ -63,4 +69,44 @@ test_that("fdrPlots retains its data-frame interface", {
   )
 
   expect_s3_class(plot, "ggplot")
+})
+
+test_that("fdrPlots orders all match classes from largest to smallest", {
+  grDevices::pdf(tempfile(fileext = ".pdf"))
+  on.exit(grDevices::dev.off(), add = TRUE)
+  scored <- tibble::tibble(
+    SVM.score = seq_len(10),
+    Decoy = c(rep("Decoy", 5), rep("Target", 3), rep("DoubleDecoy", 2)),
+    xlinkClass = "interProtein"
+  )
+
+  plot <- fdrPlots(scored, scalingFactor = 1)
+
+  expect_identical(
+    levels(plot$data$Decoy),
+    c("Decoy", "Target", "DoubleDecoy")
+  )
+})
+
+test_that("fdrPlots supports x-axis zoom and dodged histograms", {
+  grDevices::pdf(tempfile(fileext = ".pdf"))
+  on.exit(grDevices::dev.off(), add = TRUE)
+  scored <- tibble::tibble(
+    SVM.score = c(-5, -2, 1, 5),
+    Decoy = c("Target", "Decoy", "Target", "DoubleDecoy"),
+    xlinkClass = c(
+      "interProtein", "interProtein", "intraProtein", "intraProtein"
+    )
+  )
+
+  plot <- fdrPlots(
+    scored,
+    scalingFactor = 1,
+    xLimits = c(-2, 2),
+    histogramPosition = "dodge"
+  )
+
+  expect_s3_class(plot$layers[[1]]$position, "PositionDodge2")
+  expect_equal(plot$coordinates$limits$x, c(-2, 2))
+  expect_error(fdrPlots(scored, xLimits = c(2, -2)), "increasing")
 })
