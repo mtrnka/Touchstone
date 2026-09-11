@@ -360,6 +360,85 @@ plotSVMTuning <- function(training,
     ggplot2::theme_bw()
 }
 
+#' Plot classifier score against a reference score
+#'
+#' Provides a compact visual diagnostic for checking whether a trained score
+#' behaves sensibly relative to `Score.Diff`. Points are colored by target/decoy
+#' status and faceted into inter- and intra-protein matches. The returned
+#' `ggplot` can be extended with additional ggplot2 layers.
+#'
+#' @param x A result from [trainCrosslinkScore()], a result from
+#'   [prepareCrosslinkResults()], or a scored data frame.
+#' @param model For a training result, `"selected"` or `"linear"`, `"radial"`,
+#'   or a numeric candidate index.
+#' @param classifier Score column to plot on the x-axis. Defaults to the trained
+#'   or prepared classifier when available, otherwise `"SVM.score"`.
+#' @param referenceScore Score column to plot on the y-axis.
+#' @param alpha Point opacity.
+#' @param pointSize Point size.
+#' @return A `ggplot2` plot.
+#' @export
+plotScoreCorrelation <- function(x,
+                                 model = "selected",
+                                 classifier = NULL,
+                                 referenceScore = "Score.Diff",
+                                 alpha = 0.5,
+                                 pointSize = 1) {
+  if (inherits(x, "touchstone_results")) {
+    plot.data <- x$data
+    default.classifier <- x$settings$classifier
+  } else {
+    resolved <- resolveCrosslinkFit(x, model)
+    plot.data <- resolved$fit$CSMs
+    if (is.null(plot.data)) {
+      plot.data <- resolved$fit$scoredCSMs
+    }
+    default.classifier <- resolved$settings$scoreName
+  }
+
+  if (is.null(classifier)) {
+    classifier <- default.classifier
+  }
+  if (is.null(classifier)) {
+    classifier <- "SVM.score"
+  }
+  classifier <- .classifierName(rlang::enquo(classifier))
+  referenceScore <- .classifierName(rlang::enquo(referenceScore))
+
+  required <- c(classifier, referenceScore, "Decoy", "xlinkClass")
+  missing.columns <- setdiff(required, names(plot.data))
+  if (length(missing.columns) > 0) {
+    stop(
+      "Score-correlation plot data are missing required column(s): ",
+      paste(missing.columns, collapse = ", "),
+      call. = FALSE
+    )
+  }
+  if (length(alpha) != 1 || !is.finite(alpha) || alpha < 0 || alpha > 1) {
+    stop("alpha must be one finite number between 0 and 1.", call. = FALSE)
+  }
+  if (length(pointSize) != 1 || !is.finite(pointSize) || pointSize <= 0) {
+    stop("pointSize must be one positive, finite number.", call. = FALSE)
+  }
+
+  ggplot2::ggplot(
+    plot.data,
+    ggplot2::aes(
+      x = .data[[classifier]],
+      y = .data[[referenceScore]],
+      color = .data$Decoy
+    )
+  ) +
+    ggplot2::geom_point(alpha = alpha, size = pointSize, na.rm = TRUE) +
+    ggplot2::facet_grid(rows = ggplot2::vars(.data$xlinkClass)) +
+    ggplot2::labs(
+      x = classifier,
+      y = referenceScore,
+      color = "Decoy"
+    ) +
+    ggplot2::theme_bw()
+}
+
 as_scalar_numeric <- function(x, default = NA_real_) {
   if (is.null(x) || length(x) == 0) {
     return(default)
