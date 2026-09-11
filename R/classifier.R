@@ -3,23 +3,34 @@
 #' Performs feature selection, optional Score.Diff prefilter selection, and a
 #' reproducible grid search. Linear SVMs are the conservative default. Candidate
 #' models must reach the requested interprotein FDR with nonzero recovery and
-#' remain positively correlated with Score.Diff. Eligible linear candidates are
-#' ranked by recovery at the target FDR, then by average recovery over the
-#' low-FDR region and lower cost.
+#' remain positively correlated with Score.Diff. Within each requested kernel
+#' family, candidates must retain a specified fraction of the best recovery;
+#' the recommendation then favors stronger correlation with Score.Diff, followed
+#' by average low-FDR recovery and less flexible hyperparameters. The overall
+#' recommendation prefers the best eligible linear model; it falls back to the
+#' best eligible radial model only when no linear candidate passes the checks.
 #'
 #' @param datTab Parsed CLMS search results
 #' @param params Character vector specifying names of the features in `datTab` used to train model.
 #' @param scoreName Name for the new scoring function.
-#' @param scalingFactor An integer k. The multiple by which decoy DB is larger than target DB
+#' @param scalingFactor An integer k. The multiple by which the decoy database
+#'   is larger than the target database. Defaults to the value established for
+#'   the current analysis by [setDecoyScalingFactor()]. Touchstone initializes
+#'   this value to 1 when the package is loaded.
 #' @param targetER Desired FDR for classification of CSMs
 #' @param sampleNo Size of the training dataset (integer).
 #' @param cost_values Numeric vector of cost values used for hyperparameter tuning of the SVM model
 #' @param gamma_values Numeric vector of gamma values used only when radial
 #'   kernels are explicitly requested.
 #' @param sd_values Numeric vector of Score Diff values to use for prefilitering optimiziation.
+#' @param recoveryFraction Minimum fraction of the best interprotein recovery
+#'   within a kernel family required for a candidate to remain under
+#'   consideration. Among these near-best candidates, stronger correlation with
+#'   Score.Diff is preferred. Defaults to 0.9.
 #' @param kernels Character vector of SVM kernels to evaluate. The conservative
-#'   default is `"linear"`; include `"radial"` to evaluate experimental radial
-#'   candidates without making them eligible for automatic recommendation.
+#'   default is `"linear"`; include `"radial"` to evaluate radial candidates.
+#'   Each requested kernel family receives its own recommendation, while the
+#'   overall recommendation prefers an eligible linear candidate.
 #' @param seed Integer seed used to make cross-fitting reproducible.
 #' @param splitBy Character vector naming columns whose rows must remain together
 #'   during cross-fitting. The default uses residue pairs when available, then a
@@ -36,14 +47,20 @@ trainCrosslinkScore <- function(datTab,
                                 scalingFactor = the$decoyScalingFactor,
                                 targetER = 0.01,
                                 sampleNo = 20000,
-                                cost_values = c(1, 5, 10),
-                                gamma_values = c(0.01, 0.05, 0.1),
+                                cost_values = c(0.001, 0.01, 0.1, 1, 10),
+                                gamma_values = c(0.001, 0.01, 0.05, 0.1),
                                 sd_values = c(0,5,10,15,20),
+                                recoveryFraction = 0.9,
                                 kernels = "linear",
                                 seed = 1,
                                 splitBy = NULL,
                                 verbose = FALSE) {
   datTab <- dplyr::ungroup(datTab)
+
+  if (length(scalingFactor) != 1 || !is.finite(scalingFactor) ||
+      scalingFactor <= 0) {
+    stop("scalingFactor must be one positive, finite number.", call. = FALSE)
+  }
 
   # feature selection
   plausibleHits <- datTab %>%
@@ -129,15 +146,12 @@ trainCrosslinkScore <- function(datTab,
       )
     }) %>%
     mutate(
-      eligible = .data$kernel == "linear" &
-        .data$targetFDRReached &
+      eligible = .data$targetFDRReached &
         is.finite(.data$interInt) &
         .data$interHits > 0 &
         is.finite(.data$scoreCorrelation) &
         .data$scoreCorrelation > 0,
       rejectionReason = dplyr::case_when(
-        .data$kernel != "linear" ~
-          "Radial candidates are inspection-only",
         !.data$targetFDRReached ~
           "Target interprotein FDR was not reached with nonzero hits",
         !is.finite(.data$interInt) ~
@@ -152,31 +166,15 @@ trainCrosslinkScore <- function(datTab,
       )
     )
 
-  eligible.models <- tuned.parse %>%
-    filter(.data$eligible) %>%
-    arrange(
-      desc(.data$interHits),
-      desc(.data$interInt),
-      .data$cost,
-      desc(.data$scoreCorrelation)
-    )
-
-  recommended.index <- if (nrow(eligible.models) > 0) {
-    eligible.models$index[[1]]
-  } else {
-    NA_integer_
-  }
-
-  tuned.parse <- tuned.parse %>%
-    mutate(
-      recommended = if (is.na(recommended.index)) {
-        FALSE
-      } else {
-        .data$index == recommended.index
-      }
-    ) %>%
+  selection <- selectSVMCandidates(
+    tuned.parse,
+    recoveryFraction = recoveryFraction
+  )
+  tuned.parse <- selection$candidates %>%
     arrange(desc(.data$recommended), desc(.data$eligible), .data$kernel,
             .data$cost, .data$gamma)
+  recommended.index <- selection$recommendedIndex
+  recommended.by.kernel <- selection$recommendedByKernel
 
   if (verbose) {
     print(tuned.parse)
@@ -186,6 +184,11 @@ trainCrosslinkScore <- function(datTab,
     list(
       recommended = if (is.na(recommended.index)) NULL else tuned[[recommended.index]],
       recommendedIndex = recommended.index,
+      recommendedByKernel = purrr::map(
+        recommended.by.kernel,
+        ~ if (is.na(.x)) NULL else tuned[[.x]]
+      ),
+      recommendedIndexByKernel = recommended.by.kernel,
       candidates = tuned.parse,
       models = tuned,
       prefilter = list(
@@ -194,6 +197,8 @@ trainCrosslinkScore <- function(datTab,
       ),
       settings = list(
         targetER = targetER,
+        scalingFactor = scalingFactor,
+        recoveryFraction = recoveryFraction,
         kernels = kernels,
         seed = seed,
         splitBy = splitBy,
@@ -217,11 +222,26 @@ print.touchstone_training <- function(x, ...) {
     cat("Touchstone training result: recommended candidate ",
         x$recommendedIndex, ".\n", sep = "")
   }
+  if (!is.null(x$settings$scalingFactor)) {
+    cat("Decoy scaling factor: ", x$settings$scalingFactor, ".\n", sep = "")
+  }
+  if (!is.null(x$recommendedIndexByKernel)) {
+    family.summary <- paste0(
+      names(x$recommendedIndexByKernel), "=",
+      vapply(
+        x$recommendedIndexByKernel,
+        function(index) if (is.na(index)) "none" else as.character(index),
+        character(1)
+      ),
+      collapse = ", "
+    )
+    cat("Best eligible candidate by kernel: ", family.summary, ".\n", sep = "")
+  }
   print(x$candidates, ...)
   invisible(x)
 }
 
-#' Plot FDR versus the number of recovered crosslinks
+#' Plot SVM hyperparameter-tuning results
 #'
 #' Creates the faceted diagnostic plot formerly printed automatically by
 #' `trainCrosslinkScore()`. Linear and radial/gamma model families occupy
@@ -241,11 +261,11 @@ print.touchstone_training <- function(x, ...) {
 #'   best-attainable envelope.
 #' @return A `ggplot2` plot.
 #' @export
-plotFDRHits <- function(training,
-                        targetER = NULL,
-                        maxFDR = 0.05,
-                        linkClass = c("inter", "intra"),
-                        showRaw = TRUE) {
+plotSVMTuning <- function(training,
+                          targetER = NULL,
+                          maxFDR = 0.05,
+                          linkClass = c("inter", "intra"),
+                          showRaw = TRUE) {
   linkClass <- match.arg(linkClass)
 
   if (inherits(training, "touchstone_training")) {
@@ -354,6 +374,87 @@ as_scalar_numeric <- function(x, default = NA_real_) {
   }
 
   x
+}
+
+selectSVMCandidates <- function(candidates, recoveryFraction = 0.9) {
+  required <- c(
+    "index", "kernel", "cost", "gamma", "interInt", "interHits",
+    "scoreCorrelation", "eligible"
+  )
+  if (!all(required %in% names(candidates))) {
+    stop("Candidate table is missing columns required for selection.",
+         call. = FALSE)
+  }
+  if (length(recoveryFraction) != 1 || !is.finite(recoveryFraction) ||
+      recoveryFraction <= 0 || recoveryFraction > 1) {
+    stop("recoveryFraction must be greater than 0 and no greater than 1.",
+         call. = FALSE)
+  }
+
+  eligible.models <- candidates %>%
+    dplyr::filter(.data$eligible) %>%
+    dplyr::group_by(.data$kernel) %>%
+    dplyr::mutate(
+      bestInterHits = max(.data$interHits),
+      nearBestRecovery = .data$interHits >=
+        recoveryFraction * .data$bestInterHits
+    ) %>%
+    dplyr::ungroup()
+
+  near.best.models <- eligible.models %>%
+    dplyr::filter(.data$nearBestRecovery) %>%
+    dplyr::arrange(
+      dplyr::desc(.data$scoreCorrelation),
+      dplyr::desc(.data$interInt),
+      .data$gamma,
+      .data$cost
+    )
+
+  family.best <- near.best.models %>%
+    dplyr::group_by(.data$kernel) %>%
+    dplyr::slice_head(n = 1) %>%
+    dplyr::ungroup()
+
+  requested.kernels <- unique(as.character(candidates$kernel))
+  recommended.by.kernel <- stats::setNames(
+    rep(list(NA_integer_), length(requested.kernels)),
+    requested.kernels
+  )
+  if (nrow(family.best) > 0) {
+    for (i in seq_len(nrow(family.best))) {
+      recommended.by.kernel[[family.best$kernel[[i]]]] <-
+        family.best$index[[i]]
+    }
+  }
+
+  overall.pool <- if (any(family.best$kernel == "linear")) {
+    dplyr::filter(family.best, .data$kernel == "linear")
+  } else {
+    family.best
+  }
+  recommended.index <- if (nrow(overall.pool) > 0) {
+    overall.pool$index[[1]]
+  } else {
+    NA_integer_
+  }
+
+  candidates <- candidates %>%
+    dplyr::mutate(
+      nearBestRecovery = .data$index %in% near.best.models$index,
+      recommendedWithinKernel = .data$index %in%
+        unlist(recommended.by.kernel, use.names = FALSE),
+      recommended = if (is.na(recommended.index)) {
+        FALSE
+      } else {
+        .data$index == recommended.index
+      }
+    )
+
+  list(
+    candidates = candidates,
+    recommendedIndex = recommended.index,
+    recommendedByKernel = recommended.by.kernel
+  )
 }
 
 chooseScoreDiffPrefilter <- function(datTab,
@@ -583,7 +684,9 @@ chooseScoreDiffPrefilter <- function(datTab,
 #' @param datTab Parsed CLMS search results
 #' @param params Character vector specifying names of the features in `datTab` used to train model.
 #' @param scoreName Name for the new scoring function.
-#' @param scalingFactor An integer k. The multiple by which decoy DB is larger than target DB
+#' @param scalingFactor An integer k. The multiple by which the decoy database
+#'   is larger than the target database. Defaults to the value established for
+#'   the current analysis by [setDecoyScalingFactor()].
 #' @param targetER Desired FDR for classification of CSMs
 #' @param sampleNo Size of the training dataset (integer).
 #' @param cost_values Numeric vector of cost values used for hyperparameter tuning of the SVM model
@@ -603,8 +706,8 @@ tuneSVM <- function(datTab,
                     scalingFactor = the$decoyScalingFactor,
                     targetER = 0.01,
                     sampleNo = 20000,
-                    cost_values = c(0.5, 1, 5, 10),
-                    gamma_values = c(0.01, 0.05, 0.1, 0.5),
+                    cost_values = c(0.001, 0.01, 0.1, 1, 10),
+                    gamma_values = c(0.001, 0.01, 0.05, 0.1),
                     kernels = "linear",
                     seed = 1,
                     splitBy = NULL,
@@ -668,7 +771,9 @@ makeSVMParameterGrid <- function(cost_values,
 #' @param datTab Parsed CLMS search results
 #' @param params Character vector specifying names of the features in `datTab` used to train model.
 #' @param scoreName Name for the new scoring function.
-#' @param scalingFactor An integer k. The multiple by which decoy DB is larger than target DB
+#' @param scalingFactor An integer k. The multiple by which the decoy database
+#'   is larger than the target database. Defaults to the value established for
+#'   the current analysis by [setDecoyScalingFactor()].
 #' @param targetER Desired FDR for classification of URPss
 #' @param sampleNo Size of the training dataset (integer).
 #' @param cost Cost value passed to `e1071::svm()`
@@ -727,7 +832,10 @@ tuneSVM.helper <- function(datTab,
   interHits = numHits[numHits$xlinkClass=="interProtein", "n"][[1]]
   if (length(intraHits)==0) {intraHits <- 0}
   if (length(interHits)==0) {interHits <- 0}
-  errorTable <- generateErrorTable.sep(datTab.urp)
+  errorTable <- generateErrorTable.sep(
+    datTab.urp,
+    scalingFactor = scalingFactor
+  )
   inter.integral <- errorTable %>%
     filter(dplyr::between(.data$fdr.inter, 0.01, 0.05)) %>%
     summarize(inter.sum = sum(.data$inter), n= n(), inter.int = .data$inter.sum / n) %>%

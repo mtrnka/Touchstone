@@ -12,8 +12,8 @@ tuneSVM(
   scalingFactor = the$decoyScalingFactor,
   targetER = 0.01,
   sampleNo = 20000,
-  cost_values = c(0.5, 1, 5, 10),
-  gamma_values = c(0.01, 0.05, 0.1, 0.5),
+  cost_values = c(0.001, 0.01, 0.1, 1, 10),
+  gamma_values = c(0.001, 0.01, 0.05, 0.1),
   kernels = "linear",
   seed = 1,
   splitBy = NULL,
@@ -27,7 +27,9 @@ tuneSVM(
 
 \item{scoreName}{Name for the new scoring function.}
 
-\item{scalingFactor}{An integer k. The multiple by which decoy DB is larger than target DB}
+\item{scalingFactor}{An integer k. The multiple by which the decoy database
+is larger than the target database. Defaults to the value established for
+the current analysis by \code{\link[=setDecoyScalingFactor]{setDecoyScalingFactor()}}.}
 
 \item{targetER}{Desired FDR for classification of CSMs}
 

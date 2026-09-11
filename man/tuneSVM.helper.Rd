@@ -31,7 +31,9 @@ tuneSVM.helper(
 
 \item{scoreName}{Name for the new scoring function.}
 
-\item{scalingFactor}{An integer k. The multiple by which decoy DB is larger than target DB}
+\item{scalingFactor}{An integer k. The multiple by which the decoy database
+is larger than the target database. Defaults to the value established for
+the current analysis by \code{\link[=setDecoyScalingFactor]{setDecoyScalingFactor()}}.}
 
 \item{sampleNo}{Size of the training dataset (integer).}
 

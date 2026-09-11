@@ -11,9 +11,10 @@ trainCrosslinkScore(
   scalingFactor = the$decoyScalingFactor,
   targetER = 0.01,
   sampleNo = 20000,
-  cost_values = c(1, 5, 10),
-  gamma_values = c(0.01, 0.05, 0.1),
+  cost_values = c(0.001, 0.01, 0.1, 1, 10),
+  gamma_values = c(0.001, 0.01, 0.05, 0.1),
   sd_values = c(0, 5, 10, 15, 20),
+  recoveryFraction = 0.9,
   kernels = "linear",
   seed = 1,
   splitBy = NULL,
@@ -27,7 +28,10 @@ trainCrosslinkScore(
 
 \item{scoreName}{Name for the new scoring function.}
 
-\item{scalingFactor}{An integer k. The multiple by which decoy DB is larger than target DB}
+\item{scalingFactor}{An integer k. The multiple by which the decoy database
+is larger than the target database. Defaults to the value established for
+the current analysis by \code{\link[=setDecoyScalingFactor]{setDecoyScalingFactor()}}. Touchstone initializes
+this value to 1 when the package is loaded.}
 
 \item{targetER}{Desired FDR for classification of CSMs}
 
@@ -40,9 +44,15 @@ kernels are explicitly requested.}
 
 \item{sd_values}{Numeric vector of Score Diff values to use for prefilitering optimiziation.}
 
+\item{recoveryFraction}{Minimum fraction of the best interprotein recovery
+within a kernel family required for a candidate to remain under
+consideration. Among these near-best candidates, stronger correlation with
+Score.Diff is preferred. Defaults to 0.9.}
+
 \item{kernels}{Character vector of SVM kernels to evaluate. The conservative
-default is \code{"linear"}; include \code{"radial"} to evaluate experimental radial
-candidates without making them eligible for automatic recommendation.}
+default is \code{"linear"}; include \code{"radial"} to evaluate radial candidates.
+Each requested kernel family receives its own recommendation, while the
+overall recommendation prefers an eligible linear candidate.}
 
 \item{seed}{Integer seed used to make cross-fitting reproducible.}
 
@@ -61,9 +71,12 @@ and training settings.
 Performs feature selection, optional Score.Diff prefilter selection, and a
 reproducible grid search. Linear SVMs are the conservative default. Candidate
 models must reach the requested interprotein FDR with nonzero recovery and
-remain positively correlated with Score.Diff. Eligible linear candidates are
-ranked by recovery at the target FDR, then by average recovery over the
-low-FDR region and lower cost.
+remain positively correlated with Score.Diff. Within each requested kernel
+family, candidates must retain a specified fraction of the best recovery;
+the recommendation then favors stronger correlation with Score.Diff, followed
+by average low-FDR recovery and less flexible hyperparameters. The overall
+recommendation prefers the best eligible linear model; it falls back to the
+best eligible radial model only when no linear candidate passes the checks.
 }
 \seealso{
 \code{\link[=tuneSVM]{tuneSVM()}}, \code{\link[=tuneSVM.helper]{tuneSVM.helper()}}, \code{\link[=buildSVM]{buildSVM()}}
