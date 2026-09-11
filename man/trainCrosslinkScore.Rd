@@ -7,6 +7,8 @@
 trainCrosslinkScore(
   datTab,
   params = NULL,
+  complexity = "auto",
+  complexityBreaks = c(20, 200),
   scoreName = "SVM.score",
   scalingFactor = the$decoyScalingFactor,
   targetER = 0.01,
@@ -25,6 +27,15 @@ trainCrosslinkScore(
 \item{datTab}{Parsed CLMS search results}
 
 \item{params}{Character vector specifying names of the features in \code{datTab} used to train model.}
+
+\item{complexity}{Dataset-complexity profile used for automatic feature
+selection and prefilter behavior. \code{"auto"} selects a profile from the
+observed number of target protein accessions; it can be overridden with
+\code{"small"}, \code{"medium"}, or \code{"large"}.}
+
+\item{complexityBreaks}{Two increasing protein-count boundaries used by
+\code{complexity = "auto"}. The defaults assign up to 20 proteins to \code{"small"},
+21--200 to \code{"medium"}, and more than 200 to \code{"large"}.}
 
 \item{scoreName}{Name for the new scoring function.}
 

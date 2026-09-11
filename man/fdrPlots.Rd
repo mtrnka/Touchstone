@@ -15,13 +15,17 @@ fdrPlots(
 )
 }
 \arguments{
-\item{datTab}{Parsed CLMS search results.}
+\item{datTab}{Parsed CLMS search results, or a \code{touchstone_results} object
+returned by \code{\link[=prepareCrosslinkResults]{prepareCrosslinkResults()}}.}
 
-\item{threshold}{Score threshold for classifying data.}
+\item{threshold}{Score threshold for classifying data. For prepared results,
+defaults to the stored thresholds.}
 
-\item{classifier}{Classifier to use.}
+\item{classifier}{Classifier to use. For prepared results, defaults to the
+stored classifier.}
 
-\item{scalingFactor}{The decoy scaling factor.}
+\item{scalingFactor}{The decoy scaling factor. For prepared results, defaults
+to the stored scaling factor.}
 
 \item{separateFacets}{Whether to plot intraProtein and interProtein hits in separate facets}
 

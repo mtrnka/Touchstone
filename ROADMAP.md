@@ -16,13 +16,17 @@ tables with enough provenance to understand how each result was produced.
   construction and summarization, and product-ion evidence.
 - [x] Make model fitting reproducible: control randomness and prevent spectra
   or equivalent crosslinks from leaking across training and validation groups.
-- [ ] Define conservative feature profiles for approximately small (up to
+- [x] Define conservative feature profiles for approximately small (up to
   10--20 proteins), medium (20--200), and large (more than 200) systems. Treat
   these boundaries as starting defaults, not biological laws, and report the
   chosen profile.
+- [x] Add explicit training and result objects, model-selection diagnostics,
+  score-correlation plots, and reproducible decoy downsampling while retaining
+  direct access to all fitted candidates.
 - [ ] Explicitly evaluate a small set of prefilters, including `Score.Diff` and
   minimum product-ion evidence, using validation data rather than choosing the
-  setting with the largest apparent yield.
+  setting with the largest apparent yield. Score.Diff prefilter selection is
+  now enabled for the large-system profile; product-ion filtering remains.
 - [x] Make a linear SVM the default model. Radial candidates are available only
   for explicit, inspection-only experiments until independent validation shows
   a reproducible, material benefit.
@@ -33,6 +37,10 @@ tables with enough provenance to understand how each result was produced.
   named, transparent polishing policies (for example, minimum product ions or
   backbone-ladder coverage), retain pass/fail reasons, and recalculate FDR on
   the polished result.
+- [ ] Add the classified reporting path: apply the reporting-level thresholds
+  to scored CSMs, rerun `calculatePairs()` on the surviving CSMs, and only then
+  summarize to URP, peptide-pair, protein-pair, or module-pair. This ensures
+  `numCSM`, `wtCSM`, `numURP`, and `wtURP` describe threshold-passing evidence.
 - [ ] Validate the automated procedure on datasets spanning the three
   complexity profiles, including difficult DSSO data, before declaring the
   interface stable.

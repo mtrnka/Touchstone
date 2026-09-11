@@ -12,6 +12,13 @@
 #'
 #' @param datTab Parsed CLMS search results
 #' @param params Character vector specifying names of the features in `datTab` used to train model.
+#' @param complexity Dataset-complexity profile used for automatic feature
+#'   selection and prefilter behavior. `"auto"` selects a profile from the
+#'   observed number of target protein accessions; it can be overridden with
+#'   `"small"`, `"medium"`, or `"large"`.
+#' @param complexityBreaks Two increasing protein-count boundaries used by
+#'   `complexity = "auto"`. The defaults assign up to 20 proteins to `"small"`,
+#'   21--200 to `"medium"`, and more than 200 to `"large"`.
 #' @param scoreName Name for the new scoring function.
 #' @param scalingFactor An integer k. The multiple by which the decoy database
 #'   is larger than the target database. Defaults to the value established for
@@ -45,6 +52,8 @@
 #' @export
 trainCrosslinkScore <- function(datTab,
                                 params = NULL,
+                                complexity = "auto",
+                                complexityBreaks = c(20, 200),
                                 scoreName="SVM.score",
                                 scalingFactor = the$decoyScalingFactor,
                                 targetER = 0.01,
@@ -64,35 +73,35 @@ trainCrosslinkScore <- function(datTab,
     stop("scalingFactor must be one positive, finite number.", call. = FALSE)
   }
 
-  # feature selection
-  plausibleHits <- datTab %>%
-    filter(.data$Decoy == "Target",
-           .data$Score.Diff > 10,
-           .data$numCSM > 1,
-           .data$xlinkClass == "intraProtein") %>%
-    dplyr::count(.data$Acc.1, name = "n") %>%
-    dplyr::arrange(desc(.data$n))
+  complexity.info <- resolveDatasetComplexity(
+    datTab,
+    complexity = complexity,
+    complexityBreaks = complexityBreaks
+  )
 
   if (is.null(params)) {
-    params <- dplyr::case_when(
-      nrow(plausibleHits) <= 50 ~ list(params.best.nop),
-      nrow(plausibleHits) >= 2 &&
-        plausibleHits$n[1] > 100 * plausibleHits$n[2] ~ list(params.best.nop),
-      !("Perc.Bond.Cleavage.1" %in% names(datTab)) ~ list(params.noPercBond),
-      TRUE ~ list(params.best)
-    ) %>%
-      unlist()
+    params <- complexityFeatureProfile(complexity.info$selected, datTab)
+    feature.source <- "complexity-profile"
+  } else {
+    feature.source <- "user"
+  }
+
+  available.features <- union(names(datTab), "massError")
+  missing.features <- setdiff(params, available.features)
+  if (length(missing.features) > 0) {
+    stop(
+      "Selected training feature(s) are missing from datTab: ",
+      paste(missing.features, collapse = ", "),
+      call. = FALSE
+    )
   }
 
   # prefiltering
-  nProteinPairs <- removeDecoys(datTab) %>%
-    dplyr::distinct(.data$Acc.1, .data$Acc.2) %>%
-    nrow()
-
   preFilter.summary <- NULL
-  bestPreFilter <- min(sd_values, na.rm = TRUE)
+  bestPreFilter <- NULL
+  prefilter.applied <- identical(complexity.info$selected, "large")
 
-  if (nProteinPairs > 1000) {
+  if (prefilter.applied) {
     prefilter <- chooseScoreDiffPrefilter(
       datTab = datTab,
       sd_values = sd_values,
@@ -192,8 +201,11 @@ trainCrosslinkScore <- function(datTab,
       candidates = tuned.parse,
       models = tuned,
       prefilter = list(
+        applied = prefilter.applied,
         selectedScoreDiff = bestPreFilter,
-        candidates = preFilter.summary
+        candidates = preFilter.summary,
+        rowsBefore = complexity.info$rowCount,
+        rowsAfter = nrow(datTab)
       ),
       settings = list(
         targetER = targetER,
@@ -207,7 +219,9 @@ trainCrosslinkScore <- function(datTab,
         scoreDiffValues = sd_values,
         seed = seed,
         splitBy = splitBy,
-        features = params
+        features = params,
+        featureSource = feature.source,
+        complexity = complexity.info
       )
     ),
     class = "touchstone_training"
@@ -232,11 +246,88 @@ print.touchstone_training <- function(x, ...) {
   if (!is.null(x$settings$scalingFactor)) {
     cat("Decoy scaling factor: ", x$settings$scalingFactor, ".\n", sep = "")
   }
+  if (!is.null(x$settings$complexity)) {
+    cat(
+      "Complexity profile: ", x$settings$complexity$selected,
+      " (", x$settings$complexity$proteinCount,
+      " observed target proteins).\n",
+      sep = ""
+    )
+  }
   if (!is.null(x$recommendedRadial)) {
     cat("Recommended radial candidate: ", radial.index[[1]], ".\n", sep = "")
   }
   print(x$candidates, ...)
   invisible(x)
+}
+
+resolveDatasetComplexity <- function(datTab,
+                                     complexity = "auto",
+                                     complexityBreaks = c(20, 200)) {
+  complexity <- match.arg(complexity, c("auto", "small", "medium", "large"))
+  if (length(complexityBreaks) != 2 ||
+      any(!is.finite(complexityBreaks)) ||
+      any(complexityBreaks < 1) ||
+      any(complexityBreaks != as.integer(complexityBreaks)) ||
+      complexityBreaks[[1]] >= complexityBreaks[[2]]) {
+    stop(
+      "complexityBreaks must contain two increasing positive integers.",
+      call. = FALSE
+    )
+  }
+  required <- c("Acc.1", "Acc.2", "Decoy")
+  missing.columns <- setdiff(required, names(datTab))
+  if (length(missing.columns) > 0) {
+    stop(
+      "Dataset complexity requires column(s): ",
+      paste(missing.columns, collapse = ", "),
+      call. = FALSE
+    )
+  }
+
+  target.rows <- datTab[datTab$Decoy == "Target", , drop = FALSE]
+  proteins <- unique(c(
+    as.character(target.rows$Acc.1),
+    as.character(target.rows$Acc.2)
+  ))
+  proteins <- proteins[!is.na(proteins) & nzchar(proteins)]
+  protein.count <- length(proteins)
+  selected <- if (complexity != "auto") {
+    complexity
+  } else if (protein.count <= complexityBreaks[[1]]) {
+    "small"
+  } else if (protein.count <= complexityBreaks[[2]]) {
+    "medium"
+  } else {
+    "large"
+  }
+
+  list(
+    requested = complexity,
+    selected = selected,
+    proteinCount = protein.count,
+    breaks = stats::setNames(
+      as.integer(complexityBreaks),
+      c("smallMax", "mediumMax")
+    ),
+    rowCount = nrow(datTab)
+  )
+}
+
+complexityFeatureProfile <- function(complexity, datTab) {
+  complexity <- match.arg(complexity, c("small", "medium", "large"))
+  core <- c("Score.Diff", "percMatched", "massError", "z", "wtCSM")
+  features <- switch(
+    complexity,
+    small = core,
+    medium = c(core, "xlinkClass"),
+    large = c(core, "wtURP", "xlinkClass")
+  )
+  cleavage.features <- intersect(
+    c("Perc.Bond.Cleavage.1", "Perc.Bond.Cleavage.2"),
+    names(datTab)
+  )
+  c(features, cleavage.features)
 }
 
 #' Plot SVM hyperparameter-tuning results
@@ -884,12 +975,20 @@ tuneSVM.helper <- function(datTab,
     svm.args$gamma <- gamma
   }
   datTab.csm <- do.call(buildSVM, svm.args)
-  datTab.urp <- bestResPair(datTab.csm)
+  datTab.urp <- do.call(
+    bestResPair,
+    list(datTab = datTab.csm, classifier = scoreName)
+  )
   datTab.urp.thresh <- findSeparateThresholdsModelled(datTab.urp,
                                                       targetER = targetER,
                                                       scalingFactor = scalingFactor,
-                                                      plot = F)
-  numHits <- classifyDataset(datTab.urp, datTab.urp.thresh) %>%
+                                                      plot = F,
+                                                      classifier = scoreName)
+  numHits <- classifyDataset(
+    datTab.urp,
+    datTab.urp.thresh,
+    classifier = scoreName
+  ) %>%
     removeDecoys() %>%
     count(.data$xlinkClass)
   intraHits = numHits[numHits$xlinkClass=="intraProtein", "n"][[1]]
@@ -898,6 +997,7 @@ tuneSVM.helper <- function(datTab,
   if (length(interHits)==0) {interHits <- 0}
   errorTable <- generateErrorTable.sep(
     datTab.urp,
+    classifier = scoreName,
     scalingFactor = scalingFactor
   )
   inter.integral <- errorTable %>%
@@ -915,7 +1015,7 @@ tuneSVM.helper <- function(datTab,
   correlation_score <- if (nrow(top.inter.csms) >= 2) {
     100 * stats::cor(
       top.inter.csms$Score.Diff,
-      top.inter.csms$SVM.score,
+      top.inter.csms[[scoreName]],
       method = "spearman"
     )
   } else {

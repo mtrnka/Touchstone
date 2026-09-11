@@ -434,10 +434,14 @@ deScaler <- function(datTab,
 
 #' Plots the score distributions of decoy and target crosslinked hits.
 #'
-#' @param datTab Parsed CLMS search results.
-#' @param threshold Score threshold for classifying data.
-#' @param classifier Classifier to use.
-#' @param scalingFactor The decoy scaling factor.
+#' @param datTab Parsed CLMS search results, or a `touchstone_results` object
+#'   returned by [prepareCrosslinkResults()].
+#' @param threshold Score threshold for classifying data. For prepared results,
+#'   defaults to the stored thresholds.
+#' @param classifier Classifier to use. For prepared results, defaults to the
+#'   stored classifier.
+#' @param scalingFactor The decoy scaling factor. For prepared results, defaults
+#'   to the stored scaling factor.
 #' @param separateFacets Whether to plot intraProtein and interProtein hits in separate facets
 #' @param addLegend Whether to display the legend.
 #' @param title Title to plot.
@@ -452,11 +456,33 @@ fdrPlots <- function(datTab,
                      separateFacets = T,
                      addLegend = T,
                      title = "FDR plot") {
-  classifier <- ensym(classifier)
+  threshold.missing <- missing(threshold)
+  classifier.missing <- missing(classifier)
+  scaling.missing <- missing(scalingFactor)
+  if (inherits(datTab, "touchstone_results")) {
+    prepared <- datTab
+    if (threshold.missing) {
+      threshold <- prepared$thresholds
+    }
+    if (classifier.missing && !is.null(prepared$settings$classifier)) {
+      classifier <- prepared$settings$classifier
+    }
+    if (scaling.missing) {
+      scalingFactor <- prepared$settings$scalingFactor
+    }
+    datTab <- prepared$data
+  }
+  classifier <- .classifierName(rlang::enquo(classifier))
   datTab <- ungroup(datTab)
-  minValue = datTab %>% pull({{ classifier }}) %>% min(na.rm=T)
+  if (!classifier %in% names(datTab)) {
+    stop(
+      "FDR plot data have no classifier column named '", classifier, "'.",
+      call. = FALSE
+    )
+  }
+  minValue = min(datTab[[classifier]], na.rm=T)
   minValue = floor(minValue)
-  maxValue = datTab %>% pull({{ classifier }}) %>% max(na.rm=T)
+  maxValue = max(datTab[[classifier]], na.rm=T)
   maxValue = ceiling(maxValue)
   stepSize = mmax((maxValue - minValue) / 100, 0.25)
   datTab <- deScaler(datTab, scalingFactor = scalingFactor)
@@ -471,7 +497,7 @@ fdrPlots <- function(datTab,
     mutate(Decoy = factor(as.character(.data$Decoy), levels = decoy.levels))
 
   fdr.plot <- datTab %>%
-    ggplot(aes(x= {{ classifier }}, fill=.data$Decoy, alpha=.data$xlinkClass)) +
+    ggplot(aes(x=.data[[classifier]], fill=.data$Decoy, alpha=.data$xlinkClass)) +
     geom_histogram(col="black", binwidth = stepSize, position="identity")
   if (is(threshold, "list")) {
     if (!is.null(threshold$interThresh) & !is.null(threshold$intraThresh)) {
@@ -502,6 +528,7 @@ fdrPlots <- function(datTab,
   fdr.plot <- fdr.plot +
     ggtitle(title)
   suppressWarnings(plot(fdr.plot))
+  invisible(fdr.plot)
 }
 
 #' Histogram of precursor mass errors.

@@ -1,0 +1,66 @@
+test_that("fdrPlots uses settings stored in prepared results", {
+  grDevices::pdf(tempfile(fileext = ".pdf"))
+  on.exit(grDevices::dev.off(), add = TRUE)
+  scored <- tibble::tibble(
+    experimental.score = c(-2, -1, 1, 2),
+    Decoy = factor(
+      c("Target", "Decoy", "Target", "DoubleDecoy"),
+      levels = c("DoubleDecoy", "Decoy", "Target")
+    ),
+    xlinkClass = c(
+      "interProtein", "interProtein", "intraProtein", "intraProtein"
+    )
+  )
+  prepared <- structure(
+    list(
+      data = scored,
+      thresholds = list(intraThresh = 0.5, interThresh = -0.5),
+      settings = list(
+        classifier = "experimental.score",
+        scalingFactor = 5
+      )
+    ),
+    class = "touchstone_results"
+  )
+  observed <- new.env(parent = emptyenv())
+
+  testthat::local_mocked_bindings(
+    deScaler = function(datTab, scalingFactor, ...) {
+      observed$scalingFactor <- scalingFactor
+      datTab
+    },
+    .package = "touchstone"
+  )
+
+  plot <- fdrPlots(prepared)
+  built <- suppressWarnings(ggplot2::ggplot_build(plot))
+  reference.lines <- unlist(lapply(built$data[-1], function(layer) {
+    if ("xintercept" %in% names(layer)) unique(layer$xintercept) else NULL
+  }))
+
+  expect_s3_class(plot, "ggplot")
+  expect_identical(plot$data$experimental.score, scored$experimental.score)
+  expect_identical(observed$scalingFactor, 5)
+  expect_setequal(reference.lines, c(0.5, -0.5))
+})
+
+test_that("fdrPlots retains its data-frame interface", {
+  grDevices::pdf(tempfile(fileext = ".pdf"))
+  on.exit(grDevices::dev.off(), add = TRUE)
+  scored <- tibble::tibble(
+    Score.Diff = c(-2, -1, 1, 2),
+    Decoy = c("Target", "Decoy", "Target", "DoubleDecoy"),
+    xlinkClass = c(
+      "interProtein", "interProtein", "intraProtein", "intraProtein"
+    )
+  )
+
+  plot <- fdrPlots(
+    scored,
+    threshold = 0,
+    classifier = "Score.Diff",
+    scalingFactor = 1
+  )
+
+  expect_s3_class(plot, "ggplot")
+})
