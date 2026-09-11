@@ -171,6 +171,31 @@ test_that("training records automatic complexity and selected features", {
   expect_false(any(c("xlinkClass", "wtURP") %in% observed$params))
   expect_false(training$prefilter$applied)
   expect_null(training$prefilter$selectedScoreDiff)
+  expect_true(all(c(
+    "complexity", "requestedComplexity", "featureSource", "featureCount",
+    "features", "scoreDiffPrefilterEvaluated", "scoreDiffPrefilter",
+    "rowsBeforePrefilter", "rowsAfterPrefilter", "interThreshold",
+    "intraThreshold", "interHits", "intraHits", "totalHits",
+    "achievedFDR", "targetFDR", "scalingFactor", "validation",
+    "bestInterHits", "recoveryRelativeToBest", "nearBestRecovery",
+    "selectionReason"
+  ) %in% names(training$candidates)))
+  expect_identical(training$candidates$complexity, "small")
+  expect_identical(training$candidates$featureSource, "complexity-profile")
+  expect_identical(training$candidates$featureCount, length(observed$params))
+  expect_identical(
+    training$candidates$features,
+    paste(observed$params, collapse = ", ")
+  )
+  expect_false(training$candidates$scoreDiffPrefilterEvaluated)
+  expect_true(is.na(training$candidates$scoreDiffPrefilter))
+  expect_identical(training$candidates$interThreshold, 0)
+  expect_identical(training$candidates$intraThreshold, 0)
+  expect_identical(training$candidates$totalHits, 1)
+  expect_identical(
+    training$candidates$selectionReason,
+    "Recommended linear candidate"
+  )
 })
 
 test_that("large profile runs and records Score.Diff prefilter selection", {
@@ -204,6 +229,10 @@ test_that("large profile runs and records Score.Diff prefilter selection", {
   expect_identical(training$prefilter$rowsBefore, 201L)
   expect_identical(training$prefilter$rowsAfter, 100L)
   expect_identical(observed$tuning.rows, 100L)
+  expect_true(training$candidates$scoreDiffPrefilterEvaluated)
+  expect_identical(training$candidates$scoreDiffPrefilter, 10)
+  expect_identical(training$candidates$rowsBeforePrefilter, 201L)
+  expect_identical(training$candidates$rowsAfterPrefilter, 100L)
 })
 
 test_that("explicit params override complexity feature selection", {
@@ -256,6 +285,10 @@ test_that("candidate selection prefers correlation within near-best recovery", {
     c(FALSE, TRUE, TRUE, TRUE)
   )
   expect_identical(selection$candidates$index, 1:4)
+  expect_equal(
+    selection$candidates$recoveryRelativeToBest,
+    c(40 / 45, 1, 1, 50 / 55)
+  )
 })
 
 test_that("radial recommendation remains separate when linear is ineligible", {

@@ -33,9 +33,11 @@ tables with enough provenance to understand how each result was produced.
 - [x] Make a linear SVM the default model. Radial candidates are available only
   for explicit, inspection-only experiments until independent validation shows
   a reproducible, material benefit.
-- [ ] Return one recommended model plus an audit table containing every
-  candidate's filters, features, parameters, validation results, FDR/yield,
-  stability measures, and rejection reasons.
+- [ ] Complete the candidate audit. The candidate table now records each
+  model's filters, features, parameters, validation FDR/yield, relative
+  recovery within its kernel family, eligibility, recommendation status, and
+  selection or rejection reason. Explicit repeat-split stability measurements
+  remain to be designed and validated.
 - [x] Separate statistical classification from evidence polishing. Provide
   named, transparent polishing policies (for example, minimum product ions or
   backbone-ladder coverage), record the applied rules and their before/after

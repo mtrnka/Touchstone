@@ -76,8 +76,9 @@ spectrum identifier, and finally individual rows.}
 }
 \value{
 A \code{touchstone_training} object containing the recommended linear
-model, an optional recommended radial model, the candidate summary and
-fitted candidate models, prefilter information, and training settings.
+model, an optional recommended radial model, a self-contained candidate
+audit table, fitted candidate models, prefilter information, and training
+settings.
 Scored CSMs, the URP evaluation table, and its thresholds are available
 within each fitted model.
 }

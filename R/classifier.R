@@ -46,8 +46,9 @@
 #' @param verbose Print progress and the candidate table.
 #' @seealso [tuneSVM()], [tuneSVM.helper()], [buildSVM()]
 #' @returns A `touchstone_training` object containing the recommended linear
-#'   model, an optional recommended radial model, the candidate summary and
-#'   fitted candidate models, prefilter information, and training settings.
+#'   model, an optional recommended radial model, a self-contained candidate
+#'   audit table, fitted candidate models, prefilter information, and training
+#'   settings.
 #'   Scored CSMs, the URP evaluation table, and its thresholds are available
 #'   within each fitted model.
 #' @export
@@ -143,13 +144,36 @@ trainCrosslinkScore <- function(datTab,
                    verbose = verbose)
   tuned.parse <- tuned %>%
     purrr::imap_dfr(function(x,i) {
-      data.frame(
+      fdr.columns <- c(scoreName, "Decoy", "xlinkClass")
+      achieved.fdr <- if (is.data.frame(x$URPs) &&
+                          all(fdr.columns %in% names(x$URPs))) {
+        tryCatch(
+          as_scalar_numeric(calculateFDR(
+            x$URPs,
+            threshold = x$thresh,
+            classifier = scoreName,
+            scalingFactor = scalingFactor
+          )),
+          error = function(e) NA_real_
+        )
+      } else {
+        NA_real_
+      }
+      thresholds <- candidateThresholds(x$thresh)
+      inter.hits <- as_scalar_numeric(x$interHits, default = 0)
+      intra.hits <- as_scalar_numeric(x$intraHits, default = 0)
+      tibble::tibble(
         "index" = i,
         "kernel" = x$kernel,
         "cost" = x$cost,
         "gamma" = x$gamma,
+        "interThreshold" = thresholds$inter,
+        "intraThreshold" = thresholds$intra,
         "interInt" = x$interInt,
-        "interHits" = x$interHits,
+        "interHits" = inter.hits,
+        "intraHits" = intra.hits,
+        "totalHits" = inter.hits + intra.hits,
+        "achievedFDR" = achieved.fdr,
         "scoreCorrelation" = x$corScore / 100,
         "targetFDRReached" = any(
           x$errorTable$fdr.inter <= targetER & x$errorTable$inter > 0,
@@ -183,6 +207,38 @@ trainCrosslinkScore <- function(datTab,
     recoveryFraction = recoveryFraction
   )
   tuned.parse <- selection$candidates %>%
+    mutate(
+      complexity = complexity.info$selected,
+      requestedComplexity = complexity.info$requested,
+      featureSource = feature.source,
+      featureCount = length(params),
+      features = paste(params, collapse = ", "),
+      scoreDiffPrefilterEvaluated = prefilter.applied,
+      scoreDiffPrefilter = if (is.null(bestPreFilter)) {
+        NA_real_
+      } else {
+        as.numeric(bestPreFilter)
+      },
+      rowsBeforePrefilter = complexity.info$rowCount,
+      rowsAfterPrefilter = nrow(datTab),
+      targetFDR = targetER,
+      scalingFactor = scalingFactor,
+      recoveryFraction = recoveryFraction,
+      validation = if (is.null(splitBy)) {
+        "two-fold grouped cross-fit (automatic groups)"
+      } else {
+        paste0("two-fold grouped cross-fit: ", paste(splitBy, collapse = ", "))
+      },
+      selectionReason = dplyr::case_when(
+        .data$recommended ~ "Recommended linear candidate",
+        .data$recommendedRadial ~ "Recommended radial candidate",
+        !.data$eligible ~ .data$rejectionReason,
+        !.data$nearBestRecovery ~
+          "Recovery below the within-kernel selection range",
+        TRUE ~
+          "Near-best recovery; another candidate won the selection tie-breaks"
+      )
+    ) %>%
     arrange(.data$index)
   recommended.index <- selection$recommended
   recommended.radial.index <- selection$recommendedRadial
@@ -259,11 +315,55 @@ print.touchstone_training <- function(x, ...) {
       cat("Complexity reduced to small because one protein dominates the plausible CSM evidence.\n")
     }
   }
+  if (!is.null(x$settings$features)) {
+    cat("Features: ", paste(x$settings$features, collapse = ", "), ".\n",
+        sep = "")
+  }
+  if (isTRUE(x$prefilter$applied)) {
+    cat(
+      "Selected Score.Diff prefilter: ",
+      format(x$prefilter$selectedScoreDiff), ".\n",
+      sep = ""
+    )
+  } else {
+    cat("Score.Diff prefilter tuning was not applied.\n")
+  }
   if (!is.null(x$recommendedRadial)) {
     cat("Recommended radial candidate: ", radial.index[[1]], ".\n", sep = "")
   }
-  print(x$candidates, ...)
+  compact.columns <- intersect(
+    c(
+      "index", "kernel", "cost", "gamma", "interHits", "intraHits",
+      "achievedFDR", "scoreCorrelation", "eligible", "recommended",
+      "recommendedRadial"
+    ),
+    names(x$candidates)
+  )
+  print(x$candidates[, compact.columns, drop = FALSE], ...)
+  cat("Full candidate audit: $candidates\n")
   invisible(x)
+}
+
+candidateThresholds <- function(thresholds) {
+  if (is.numeric(thresholds) && length(thresholds) == 1) {
+    return(list(inter = as.numeric(thresholds), intra = as.numeric(thresholds)))
+  }
+  if (is.list(thresholds) && !is.null(thresholds$globalThresh)) {
+    value <- as_scalar_numeric(thresholds$globalThresh)
+    return(list(inter = value, intra = value))
+  }
+  list(
+    inter = if (is.list(thresholds)) {
+      as_scalar_numeric(thresholds$interThresh)
+    } else {
+      NA_real_
+    },
+    intra = if (is.list(thresholds)) {
+      as_scalar_numeric(thresholds$intraThresh)
+    } else {
+      NA_real_
+    }
+  )
 }
 
 resolveDatasetComplexity <- function(datTab,
@@ -609,17 +709,27 @@ selectSVMCandidates <- function(candidates, recoveryFraction = 0.9) {
          call. = FALSE)
   }
 
-  eligible.models <- candidates %>%
-    dplyr::filter(.data$eligible) %>%
+  candidates <- candidates %>%
     dplyr::group_by(.data$kernel) %>%
     dplyr::mutate(
-      bestInterHits = max(.data$interHits),
-      nearBestRecovery = .data$interHits >=
-        recoveryFraction * .data$bestInterHits
+      bestInterHits = if (any(.data$eligible)) {
+        max(.data$interHits[.data$eligible])
+      } else {
+        NA_real_
+      },
+      recoveryRelativeToBest = dplyr::if_else(
+        .data$eligible & is.finite(.data$bestInterHits) &
+          .data$bestInterHits > 0,
+        .data$interHits / .data$bestInterHits,
+        NA_real_
+      ),
+      nearBestRecovery = .data$eligible &
+        !is.na(.data$recoveryRelativeToBest) &
+        .data$recoveryRelativeToBest >= recoveryFraction
     ) %>%
     dplyr::ungroup()
 
-  near.best.models <- eligible.models %>%
+  near.best.models <- candidates %>%
     dplyr::filter(.data$nearBestRecovery) %>%
     dplyr::arrange(
       dplyr::desc(.data$scoreCorrelation),
@@ -642,7 +752,6 @@ selectSVMCandidates <- function(candidates, recoveryFraction = 0.9) {
 
   candidates <- candidates %>%
     dplyr::mutate(
-      nearBestRecovery = .data$index %in% near.best.models$index,
       recommended = if (is.na(recommended.index)) {
         FALSE
       } else {
