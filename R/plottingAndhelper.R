@@ -433,8 +433,9 @@ deScaler <- function(datTab,
 }
 
 #' Plots the score distributions of decoy and target crosslinked hits.
-#' Prepared results automatically add their summarization level and calculated
-#' FDR as a subtitle, independently of the user-supplied plot title.
+#' Prepared results automatically add their summarization level and the FDR
+#' calculated at the displayed threshold as a subtitle, independently of the
+#' user-supplied plot title.
 #'
 #' @param datTab Parsed CLMS search results, or a `touchstone_results` object
 #'   returned by [prepareCrosslinkResults()].
@@ -477,7 +478,8 @@ fdrPlots <- function(datTab,
   threshold.missing <- missing(threshold)
   classifier.missing <- missing(classifier)
   scaling.missing <- missing(scalingFactor)
-  if (inherits(datTab, "touchstone_results")) {
+  results.input <- inherits(datTab, "touchstone_results")
+  if (results.input) {
     prepared <- datTab
     level.labels <- c(
       csm = "CSM",
@@ -494,26 +496,12 @@ fdrPlots <- function(datTab,
         as.character(level)
       }
     }
-    calculated.fdr <- prepared$fdr
     metadata.parts <- character()
     if (!is.null(level)) {
       metadata.parts <- c(
         metadata.parts,
         paste0("Summarization level: ", level)
       )
-    }
-    if (length(calculated.fdr) == 1 && is.finite(calculated.fdr)) {
-      metadata.parts <- c(
-        metadata.parts,
-        paste0(
-          "Calculated FDR: ",
-          formatC(100 * calculated.fdr, format = "f", digits = 2),
-          "%"
-        )
-      )
-    }
-    if (length(metadata.parts) > 0) {
-      metadata.subtitle <- paste(metadata.parts, collapse = " | ")
     }
     if (threshold.missing) {
       threshold <- prepared$thresholds
@@ -533,6 +521,27 @@ fdrPlots <- function(datTab,
       "FDR plot data have no classifier column named '", classifier, "'.",
       call. = FALSE
     )
+  }
+  if (results.input) {
+    calculated.fdr <- calculateFDR(
+      datTab,
+      threshold = threshold,
+      classifier = classifier,
+      scalingFactor = scalingFactor
+    )
+    if (length(calculated.fdr) == 1 && is.finite(calculated.fdr)) {
+      metadata.parts <- c(
+        metadata.parts,
+        paste0(
+          "Calculated FDR: ",
+          formatC(100 * calculated.fdr, format = "f", digits = 2),
+          "%"
+        )
+      )
+    }
+    if (length(metadata.parts) > 0) {
+      metadata.subtitle <- paste(metadata.parts, collapse = " | ")
+    }
   }
   minValue = min(datTab[[classifier]], na.rm=T)
   minValue = floor(minValue)

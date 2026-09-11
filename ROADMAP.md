@@ -19,7 +19,10 @@ tables with enough provenance to understand how each result was produced.
 - [x] Define conservative feature profiles for approximately small (up to
   10--20 proteins), medium (20--200), and large (more than 200) systems. Treat
   these boundaries as starting defaults, not biological laws, and report the
-  chosen profile.
+  chosen profile. Automatic selection counts proteins with plausible repeated
+  intra-protein CSM evidence rather than every reported accession, and retains
+  the original dominant-protein safeguard for small systems with background
+  matches.
 - [x] Add explicit training and result objects, model-selection diagnostics,
   score-correlation plots, and reproducible decoy downsampling while retaining
   direct access to all fitted candidates.
@@ -33,14 +36,15 @@ tables with enough provenance to understand how each result was produced.
 - [ ] Return one recommended model plus an audit table containing every
   candidate's filters, features, parameters, validation results, FDR/yield,
   stability measures, and rejection reasons.
-- [ ] Separate statistical classification from evidence polishing. Provide
+- [x] Separate statistical classification from evidence polishing. Provide
   named, transparent polishing policies (for example, minimum product ions or
-  backbone-ladder coverage), retain pass/fail reasons, and recalculate FDR on
-  the polished result.
-- [ ] Add the classified reporting path: apply the reporting-level thresholds
+  backbone-ladder coverage), record the applied rules and their before/after
+  CSM counts, and recalculate FDR on the polished result.
+- [x] Add the classified reporting path: apply the reporting-level thresholds
   to scored CSMs, rerun `calculatePairs()` on the surviving CSMs, and only then
   summarize to URP, peptide-pair, protein-pair, or module-pair. This ensures
-  `numCSM`, `wtCSM`, `numURP`, and `wtURP` describe threshold-passing evidence.
+  `numCSM` and `numURP` describe threshold-passing evidence; the training-only
+  weighted count features are omitted from classified reporting tables.
 - [ ] Validate the automated procedure on datasets spanning the three
   complexity profiles, including difficult DSSO data, before declaring the
   interface stable.

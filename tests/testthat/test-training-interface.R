@@ -18,8 +18,11 @@ test_that("linear kernels are the default tuning grid", {
 make_complexity_data <- function(n) {
   data.frame(
     Acc.1 = paste0("P", seq_len(n)),
-    Acc.2 = "P1",
-    Decoy = "Target"
+    Acc.2 = paste0("P", seq_len(n)),
+    Decoy = "Target",
+    Score.Diff = 11,
+    numCSM = 2,
+    xlinkClass = "intraProtein"
   )
 }
 
@@ -34,7 +37,51 @@ test_that("automatic complexity profiles use reported protein boundaries", {
   expect_identical(medium.high$selected, "medium")
   expect_identical(large$selected, "large")
   expect_identical(large$proteinCount, 201L)
+  expect_identical(large$rawProteinCount, 201L)
   expect_identical(large$breaks, c(smallMax = 20L, mediumMax = 200L))
+})
+
+test_that("automatic complexity ignores unsupported background accessions", {
+  input <- make_complexity_data(250)
+  input$Score.Diff[-1] <- 5
+
+  result <- touchstone:::resolveDatasetComplexity(input)
+
+  expect_identical(result$rawProteinCount, 250L)
+  expect_identical(result$proteinCount, 1L)
+  expect_identical(result$highScoringCSMCount, 1L)
+  expect_identical(result$selected, "small")
+})
+
+test_that("dominant plausible CSM evidence keeps a background-rich system small", {
+  dominant <- make_complexity_data(30)
+  dominant <- dplyr::bind_rows(
+    dominant,
+    dominant[rep(1, 100), , drop = FALSE]
+  )
+
+  result <- touchstone:::resolveDatasetComplexity(dominant)
+
+  expect_identical(result$proteinCount, 30L)
+  expect_true(result$dominanceOverride)
+  expect_gt(result$dominantProteinRatio, 100)
+  expect_identical(result$selected, "small")
+})
+
+test_that("explicit complexity overrides a dominance downgrade", {
+  dominant <- make_complexity_data(30)
+  dominant <- dplyr::bind_rows(
+    dominant,
+    dominant[rep(1, 100), , drop = FALSE]
+  )
+
+  result <- touchstone:::resolveDatasetComplexity(
+    dominant,
+    complexity = "medium"
+  )
+
+  expect_false(result$dominanceOverride)
+  expect_identical(result$selected, "medium")
 })
 
 test_that("complexity profile and boundaries can be overridden", {
@@ -74,14 +121,15 @@ test_that("complexity feature profiles add higher-order features gradually", {
 make_training_complexity_data <- function(n) {
   tibble::tibble(
     Acc.1 = paste0("P", seq_len(n)),
-    Acc.2 = "P1",
+    Acc.2 = paste0("P", seq_len(n)),
     Decoy = "Target",
-    Score.Diff = seq_len(n),
+    Score.Diff = 11 + seq_len(n),
+    numCSM = 2,
     percMatched = 0.5,
     z = 3,
     wtCSM = 1,
     wtURP = 1,
-    xlinkClass = "interProtein"
+    xlinkClass = "intraProtein"
   )
 }
 
@@ -117,6 +165,7 @@ test_that("training records automatic complexity and selected features", {
 
   expect_identical(training$settings$complexity$selected, "small")
   expect_identical(training$settings$complexity$proteinCount, 10L)
+  expect_identical(training$settings$complexity$rawProteinCount, 10L)
   expect_identical(training$settings$featureSource, "complexity-profile")
   expect_identical(training$settings$features, observed$params)
   expect_false(any(c("xlinkClass", "wtURP") %in% observed$params))

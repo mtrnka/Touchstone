@@ -29,9 +29,10 @@ trainCrosslinkScore(
 \item{params}{Character vector specifying names of the features in \code{datTab} used to train model.}
 
 \item{complexity}{Dataset-complexity profile used for automatic feature
-selection and prefilter behavior. \code{"auto"} selects a profile from the
-observed number of target protein accessions; it can be overridden with
-\code{"small"}, \code{"medium"}, or \code{"large"}.}
+selection and prefilter behavior. \code{"auto"} selects a profile from proteins
+with plausible repeated intra-protein CSM evidence (\code{Score.Diff > 10} and
+\code{numCSM > 1}); it can be overridden with \code{"small"}, \code{"medium"}, or
+\code{"large"}.}
 
 \item{complexityBreaks}{Two increasing protein-count boundaries used by
 \code{complexity = "auto"}. The defaults assign up to 20 proteins to \code{"small"},

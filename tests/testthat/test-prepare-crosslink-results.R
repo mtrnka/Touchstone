@@ -4,7 +4,16 @@ make_results_test_training <- function() {
     xlinkedPepPair = c("PEP1", "PEP1", "PEP2", "PEP3"),
     xlinkedProtPair = c("P1::P2", "P1::P2", "P1::P2", "P3::P3"),
     xlinkedModulPair = c("M1::M2", "M1::M2", "M1::M2", "M3::M3"),
-    SVM.score = c(1, 4, 3, 2),
+    Acc.1 = c("P1", "P1", "r1_P1", "P3"),
+    Acc.2 = c("P2", "P2", "P2", "P3"),
+    Protein.1 = c("P1", "P1", "P1", "P3"),
+    Protein.2 = c("P2", "P2", "P2", "P3"),
+    XLink.AA.1 = c(10, 10, 20, 30),
+    XLink.AA.2 = c(20, 20, 30, 40),
+    DB.Peptide.1 = c("AAAA", "AAAA", "BBBB", "CCCC"),
+    DB.Peptide.2 = c("DDDD", "DDDD", "EEEE", "CCCC"),
+    Score.Diff = c(20, 18, 16, 14),
+    SVM.score = c(4, 3, 3, 2),
     xlinkClass = c("interProtein", "interProtein", "interProtein", "intraProtein"),
     Decoy = c("Target", "Target", "Decoy", "Target")
   )
@@ -65,6 +74,8 @@ test_that("prepared URP results reuse training output and classify it", {
 
   expect_s3_class(result, "touchstone_results")
   expect_identical(result$data, training$recommended$URPs)
+  expect_identical(result$sourceCSMs, training$recommended$CSMs)
+  expect_identical(result$stage, "prepared")
   expect_identical(result$thresholds, training$recommended$thresh)
   expect_identical(observed$threshold, training$recommended$thresh)
   expect_identical(observed$scalingFactor, 5)
@@ -75,6 +86,21 @@ test_that("prepared URP results reuse training output and classify it", {
   expect_identical(result$summarizationLevel, "urp")
   expect_identical(result$model$kernel, "linear")
   expect_false(any(c("classified", "reported") %in% names(result)))
+})
+
+test_that("prepared results accept and record manual thresholds", {
+  training <- make_results_test_training()
+  manual <- list(interThresh = 2.5, intraThresh = 1.5)
+
+  result <- prepareCrosslinkResults(
+    training,
+    summarizationLevel = "urp",
+    thresholds = manual,
+    scalingFactor = 1
+  )
+
+  expect_identical(result$thresholds, manual)
+  expect_identical(result$settings$thresholdSource, "manual")
 })
 
 test_that("prepared results use existing summarization and threshold functions", {
@@ -211,4 +237,115 @@ test_that("prepared results consistently use an alternate classifier", {
   expect_identical(observed$threshold.classifier, "experimental.score")
   expect_identical(observed$count.classifier, "experimental.score")
   expect_identical(observed$fdr.classifier, "experimental.score")
+})
+
+test_that("classification recalculates support counts after thresholding", {
+  training <- make_results_test_training()
+  thresholds <- list(interThresh = 2.5, intraThresh = 2.5)
+  prepared <- prepareCrosslinkResults(
+    training,
+    summarizationLevel = "urp",
+    thresholds = thresholds,
+    scalingFactor = 1
+  )
+
+  result <- classifyCrosslinkResults(prepared)
+
+  expect_identical(result$stage, "classified")
+  expect_identical(result$settings$thresholdSource, "manual")
+  expect_equal(nrow(result$data), 2)
+  expect_setequal(result$data$numCSM, c(2, 1))
+  expect_false(any(c("wtCSM", "wtURP") %in% names(result$data)))
+  expect_identical(result$sourceCSMs, prepared$sourceCSMs)
+  expect_identical(result$polishingAudit$rule, "threshold")
+  expect_identical(result$polishingAudit$removed, 1L)
+})
+
+test_that("classification applies named Prospector-style polishing rules", {
+  training <- make_results_test_training()
+  csms <- training$recommended$CSMs %>%
+    dplyr::mutate(
+      Len.Pep.1 = c(10, 10, 10, 4),
+      Len.Pep.2 = c(10, 10, 10, 4),
+      Sc.1 = c(10, 4, 10, 10),
+      Sc.2 = 10,
+      numProdIons.1 = c(5, 5, 2, 5),
+      numProdIons.2 = 5,
+      ladderLen.1 = c(3, 3, 3, 3),
+      ladderLen.2 = c(3, 3, 1, 3)
+    )
+  prepared <- prepareCrosslinkResults(
+    csms,
+    summarizationLevel = "urp",
+    thresholds = -100,
+    targetER = 0.01,
+    scalingFactor = 1
+  )
+
+  result <- classifyCrosslinkResults(
+    prepared,
+    polishing = list(
+      minPepLen = 5,
+      minPepScore = 5,
+      minScoreDiff = 15,
+      minIons = 3,
+      minLadderCoverage = 0.25
+    )
+  )
+
+  expect_identical(result$stage, "polished")
+  expect_equal(nrow(result$data), 1)
+  expect_identical(
+    result$polishingAudit$rule,
+    c(
+      "threshold", "minPepLen", "minPepScore", "minScoreDiff", "minIons",
+      "minLadderCoverage"
+    )
+  )
+  expect_identical(
+    result$settings$polishing$minLadderCoverage,
+    0.25
+  )
+})
+
+test_that("classification skips and reports unavailable polishing evidence", {
+  prepared <- prepareCrosslinkResults(
+    make_results_test_training(),
+    thresholds = -100,
+    scalingFactor = 1
+  )
+
+  observed.warnings <- character()
+  result <- withCallingHandlers(
+    classifyCrosslinkResults(
+      prepared,
+      polishing = list(
+        minPepScore = 5,
+        minIons = 3,
+        minLadderCoverage = 0.25
+      )
+    ),
+    warning = function(warning) {
+      observed.warnings <<- c(observed.warnings, conditionMessage(warning))
+      invokeRestart("muffleWarning")
+    }
+  )
+  expect_length(observed.warnings, 3)
+  expect_true(all(grepl("was skipped", observed.warnings)))
+  expect_identical(result$stage, "classified")
+  expect_identical(
+    result$polishingAudit$rule,
+    c("threshold", "minPepScore", "minIons", "minLadderCoverage")
+  )
+  expect_identical(
+    result$polishingAudit$applied,
+    c(TRUE, FALSE, FALSE, FALSE)
+  )
+  expect_match(result$polishingAudit$reason[[2]], "Sc.1, Sc.2")
+  expect_match(result$polishingAudit$reason[[3]], "numProdIons.1")
+  expect_match(result$polishingAudit$reason[[4]], "ladderLen.1")
+  expect_error(
+    classifyCrosslinkResults(prepared, polishing = list(minProductIons = 3)),
+    "Unknown polishing option"
+  )
 })

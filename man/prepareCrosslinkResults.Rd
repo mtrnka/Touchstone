@@ -11,7 +11,8 @@ prepareCrosslinkResults(
   targetER = NULL,
   scalingFactor = NULL,
   retainGroups = TRUE,
-  classifier = "SVM.score"
+  classifier = "SVM.score",
+  thresholds = NULL
 )
 }
 \arguments{
@@ -38,12 +39,18 @@ summarization; passed to the existing \code{best*Pair()} functions.}
 \item{classifier}{Column in the CSM table used to rank, summarize, threshold,
 and classify hits. Defaults to \code{"SVM.score"}; alternatives such as
 \code{"Score.Diff"} or an experimental score column are supported.}
+
+\item{thresholds}{Optional manually selected threshold: one numeric global
+threshold, a list containing \code{globalThresh}, or a list containing both
+\code{interThresh} and \code{intraThresh}. When omitted, thresholds are estimated
+with \code{\link[=findSeparateThresholdsModelled]{findSeparateThresholdsModelled()}}.}
 }
 \value{
 A \code{touchstone_results} object containing the complete summarized
-\code{data}, level-specific \code{thresholds}, the resulting \code{fdr}, a compact
-\code{classificationSummary}, and the settings used. Use \code{\link[=classifyDataset]{classifyDataset()}} and
-\code{\link[=removeDecoys]{removeDecoys()}} to generate filtered views.
+\code{data}, its complete scored CSM source, level-specific \code{thresholds}, the
+resulting \code{fdr}, a compact \code{classificationSummary}, and the settings used.
+Use \code{\link[=classifyCrosslinkResults]{classifyCrosslinkResults()}} to generate a classified and optionally
+polished reporting table with recalculated support counts.
 }
 \description{
 Starts from a scored CSM table, summarizes it at the requested proteomics

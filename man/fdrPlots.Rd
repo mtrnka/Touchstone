@@ -3,8 +3,9 @@
 \name{fdrPlots}
 \alias{fdrPlots}
 \title{Plots the score distributions of decoy and target crosslinked hits.
-Prepared results automatically add their summarization level and calculated
-FDR as a subtitle, independently of the user-supplied plot title.}
+Prepared results automatically add their summarization level and the FDR
+calculated at the displayed threshold as a subtitle, independently of the
+user-supplied plot title.}
 \usage{
 fdrPlots(
   datTab,
@@ -51,6 +52,7 @@ A ggplot object.
 }
 \description{
 Plots the score distributions of decoy and target crosslinked hits.
-Prepared results automatically add their summarization level and calculated
-FDR as a subtitle, independently of the user-supplied plot title.
+Prepared results automatically add their summarization level and the FDR
+calculated at the displayed threshold as a subtitle, independently of the
+user-supplied plot title.
 }

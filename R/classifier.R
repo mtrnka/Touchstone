@@ -13,9 +13,10 @@
 #' @param datTab Parsed CLMS search results
 #' @param params Character vector specifying names of the features in `datTab` used to train model.
 #' @param complexity Dataset-complexity profile used for automatic feature
-#'   selection and prefilter behavior. `"auto"` selects a profile from the
-#'   observed number of target protein accessions; it can be overridden with
-#'   `"small"`, `"medium"`, or `"large"`.
+#'   selection and prefilter behavior. `"auto"` selects a profile from proteins
+#'   with plausible repeated intra-protein CSM evidence (`Score.Diff > 10` and
+#'   `numCSM > 1`); it can be overridden with `"small"`, `"medium"`, or
+#'   `"large"`.
 #' @param complexityBreaks Two increasing protein-count boundaries used by
 #'   `complexity = "auto"`. The defaults assign up to 20 proteins to `"small"`,
 #'   21--200 to `"medium"`, and more than 200 to `"large"`.
@@ -250,9 +251,13 @@ print.touchstone_training <- function(x, ...) {
     cat(
       "Complexity profile: ", x$settings$complexity$selected,
       " (", x$settings$complexity$proteinCount,
-      " observed target proteins).\n",
+      " supported proteins; ", x$settings$complexity$rawProteinCount,
+      " raw target accessions).\n",
       sep = ""
     )
+    if (isTRUE(x$settings$complexity$dominanceOverride)) {
+      cat("Complexity reduced to small because one protein dominates the plausible CSM evidence.\n")
+    }
   }
   if (!is.null(x$recommendedRadial)) {
     cat("Recommended radial candidate: ", radial.index[[1]], ".\n", sep = "")
@@ -275,7 +280,9 @@ resolveDatasetComplexity <- function(datTab,
       call. = FALSE
     )
   }
-  required <- c("Acc.1", "Acc.2", "Decoy")
+  required <- c(
+    "Acc.1", "Acc.2", "Decoy", "Score.Diff", "numCSM", "xlinkClass"
+  )
   missing.columns <- setdiff(required, names(datTab))
   if (length(missing.columns) > 0) {
     stop(
@@ -285,15 +292,47 @@ resolveDatasetComplexity <- function(datTab,
     )
   }
 
-  target.rows <- datTab[datTab$Decoy == "Target", , drop = FALSE]
-  proteins <- unique(c(
+  target.rows <- datTab[
+    !is.na(datTab$Decoy) & datTab$Decoy == "Target",
+    ,
+    drop = FALSE
+  ]
+  raw.proteins <- unique(c(
     as.character(target.rows$Acc.1),
     as.character(target.rows$Acc.2)
   ))
-  proteins <- proteins[!is.na(proteins) & nzchar(proteins)]
-  protein.count <- length(proteins)
+  raw.proteins <- raw.proteins[!is.na(raw.proteins) & nzchar(raw.proteins)]
+
+  plausible.csms <- target.rows[
+    !is.na(target.rows$Score.Diff) & target.rows$Score.Diff > 10 &
+      !is.na(target.rows$numCSM) & target.rows$numCSM > 1 &
+      !is.na(target.rows$xlinkClass) &
+      target.rows$xlinkClass == "intraProtein",
+    ,
+    drop = FALSE
+  ]
+  protein.support <- plausible.csms %>%
+    dplyr::mutate(.protein = as.character(.data$Acc.1)) %>%
+    dplyr::filter(!is.na(.data$.protein), nzchar(.data$.protein)) %>%
+    dplyr::count(.data$.protein, name = "highScoringCSMs") %>%
+    dplyr::arrange(dplyr::desc(.data$highScoringCSMs), .data$.protein)
+  protein.count <- nrow(protein.support)
+  dominance.ratio <- if (protein.count >= 2) {
+    protein.support$highScoringCSMs[[1]] /
+      protein.support$highScoringCSMs[[2]]
+  } else if (protein.count == 1) {
+    Inf
+  } else {
+    NA_real_
+  }
+  dominance.override <- complexity == "auto" && protein.count >= 2 &&
+    protein.support$highScoringCSMs[[1]] >
+      100 * protein.support$highScoringCSMs[[2]]
+
   selected <- if (complexity != "auto") {
     complexity
+  } else if (dominance.override) {
+    "small"
   } else if (protein.count <= complexityBreaks[[1]]) {
     "small"
   } else if (protein.count <= complexityBreaks[[2]]) {
@@ -306,6 +345,17 @@ resolveDatasetComplexity <- function(datTab,
     requested = complexity,
     selected = selected,
     proteinCount = protein.count,
+    rawProteinCount = length(raw.proteins),
+    highScoringCSMCount = nrow(plausible.csms),
+    dominantProteinRatio = dominance.ratio,
+    dominanceOverride = dominance.override,
+    evidenceCriteria = list(
+      scoreDiffGreaterThan = 10,
+      numCSMGreaterThan = 1,
+      xlinkClass = "intraProtein",
+      decoyClass = "Target",
+      dominanceRatioGreaterThan = 100
+    ),
     breaks = stats::setNames(
       as.integer(complexityBreaks),
       c("smallMax", "mediumMax")
