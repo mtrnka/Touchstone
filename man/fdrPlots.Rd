@@ -38,8 +38,9 @@ to the stored scaling factor.}
 \item{title}{Title to plot.}
 
 \item{xLimits}{Optional numeric vector of length two giving the displayed
-x-axis limits. The histogram is calculated from the complete data before
-the view is zoomed.}
+x-axis limits. Only observations in this interval are used for the
+displayed histogram, allowing the y-axis and class drawing order to adapt
+to the selected region. Bin width is still based on the complete range.}
 
 \item{histogramPosition}{Display target and decoy histograms as overlapping
 layers (\code{"overlap"}) or side by side using \code{\link[ggplot2:position_dodge]{ggplot2::position_dodge2()}}

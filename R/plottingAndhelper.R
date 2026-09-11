@@ -448,8 +448,9 @@ deScaler <- function(datTab,
 #' @param addLegend Whether to display the legend.
 #' @param title Title to plot.
 #' @param xLimits Optional numeric vector of length two giving the displayed
-#'   x-axis limits. The histogram is calculated from the complete data before
-#'   the view is zoomed.
+#'   x-axis limits. Only observations in this interval are used for the
+#'   displayed histogram, allowing the y-axis and class drawing order to adapt
+#'   to the selected region. Bin width is still based on the complete range.
 #' @param histogramPosition Display target and decoy histograms as overlapping
 #'   layers (`"overlap"`) or side by side using [ggplot2::position_dodge2()]
 #'   (`"dodge"`).
@@ -539,6 +540,16 @@ fdrPlots <- function(datTab,
   maxValue = ceiling(maxValue)
   stepSize = mmax((maxValue - minValue) / 100, 0.25)
   datTab <- deScaler(datTab, scalingFactor = scalingFactor)
+  if (!is.null(xLimits)) {
+    datTab <- datTab %>%
+      filter(
+        .data[[classifier]] >= xLimits[[1]],
+        .data[[classifier]] <= xLimits[[2]]
+      )
+    if (nrow(datTab) == 0) {
+      stop("No observations fall within xLimits.", call. = FALSE)
+    }
+  }
   decoy.classes <- c("Target", "Decoy", "DoubleDecoy")
   decoy.counts <- vapply(
     decoy.classes,

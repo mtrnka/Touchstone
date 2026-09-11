@@ -108,5 +108,10 @@ test_that("fdrPlots supports x-axis zoom and dodged histograms", {
 
   expect_s3_class(plot$layers[[1]]$position, "PositionDodge2")
   expect_equal(plot$coordinates$limits$x, c(-2, 2))
+  expect_setequal(plot$data$SVM.score, c(-2, 1))
   expect_error(fdrPlots(scored, xLimits = c(2, -2)), "increasing")
+  expect_error(
+    fdrPlots(scored, xLimits = c(10, 20)),
+    "No observations"
+  )
 })
