@@ -14,6 +14,7 @@ test_that("score correlation plot reproduces the CSM diagnostic", {
   expect_identical(plot$data, csms)
   expect_identical(plot$labels$x, "SVM.score")
   expect_identical(plot$labels$y, "Score.Diff")
+  expect_identical(plot$labels$title, "SVM.score versus Score.Diff")
   expect_length(plot$layers, 1)
   expect_s3_class(plot$layers[[1]]$geom, "GeomPoint")
   expect_equal(length(unique(ggplot2::ggplot_build(plot)$layout$layout$PANEL)), 2)
@@ -53,6 +54,24 @@ test_that("score correlation plot selects requested training model", {
   plot <- plotScoreCorrelation(training, model = "radial")
 
   expect_identical(plot$data$SVM.score, 10)
+  expect_identical(plot$labels$title, "Touchstone candidate 2: radial SVM")
+  expect_match(plot$labels$subtitle, "cost 1")
+  expect_match(plot$labels$subtitle, "gamma 0.01")
+  expect_match(plot$labels$subtitle, "recommended radial")
+
+  comparison <- plotScoreCorrelation(training, model = c(1, 2))
+  expect_identical(
+    comparison$labels$title,
+    "Touchstone candidate comparison"
+  )
+  expect_identical(nrow(comparison$data), 2L)
+  expect_true(".candidate" %in% names(comparison$data))
+  expect_match(levels(comparison$data$.candidate)[1], "Candidate 1")
+  expect_match(levels(comparison$data$.candidate)[2], "Candidate 2")
+  expect_equal(
+    length(unique(ggplot2::ggplot_build(comparison)$layout$layout$PANEL)),
+    2
+  )
 })
 
 test_that("score correlation plot supports alternate classifier columns", {

@@ -680,13 +680,17 @@ plotSVMTuning <- function(training,
 #'
 #' Provides a compact visual diagnostic for checking whether a trained score
 #' behaves sensibly relative to `Score.Diff`. Points are colored by target/decoy
-#' status and faceted into inter- and intra-protein matches. The returned
-#' `ggplot` can be extended with additional ggplot2 layers.
+#' status and faceted into inter- and intra-protein matches. Training-result
+#' plots identify the candidate and kernel in the title and report its
+#' hyperparameters, eligibility, recommendation status, and correlation check
+#' in the subtitle. The returned `ggplot` can be extended with additional
+#' ggplot2 layers.
 #'
 #' @param x A result from [trainCrosslinkScore()], a result from
 #'   [prepareCrosslinkResults()], or a scored data frame.
 #' @param model For a training result, `"selected"` or `"linear"`, `"radial"`,
-#'   or a numeric candidate index.
+#'   a numeric candidate index, or a vector of candidate indices or model names
+#'   to compare in columns.
 #' @param classifier Score column to plot on the x-axis. Defaults to the trained
 #'   or prepared classifier when available, otherwise `"SVM.score"`.
 #' @param referenceScore Score column to plot on the y-axis.
@@ -700,9 +704,90 @@ plotScoreCorrelation <- function(x,
                                  referenceScore = "Score.Diff",
                                  alpha = 0.5,
                                  pointSize = 1) {
-  if (inherits(x, "touchstone_results")) {
+  plot.title <- NULL
+  plot.subtitle <- NULL
+  multiple.models <- inherits(x, "touchstone_training") && length(model) > 1
+  if (multiple.models) {
+    resolved.models <- lapply(as.list(model), function(requested.model) {
+      resolveCrosslinkFit(x, requested.model)
+    })
+    candidate.labels <- vapply(resolved.models, function(resolved) {
+      model.info <- resolved$model
+      candidate <- x$candidates[
+        x$candidates$index == model.info$index,
+        ,
+        drop = FALSE
+      ]
+      details <- c(
+        model.info$kernel,
+        paste0("cost ", format(model.info$cost))
+      )
+      if (identical(model.info$kernel, "radial") &&
+          !is.null(model.info$gamma) && is.finite(model.info$gamma)) {
+        details <- c(details, paste0("gamma ", format(model.info$gamma)))
+      }
+      if (nrow(candidate) == 1 && "eligible" %in% names(candidate)) {
+        details <- c(details, if (isTRUE(candidate$eligible)) {
+          "eligible"
+        } else {
+          "ineligible"
+        })
+      }
+      if (nrow(candidate) == 1 &&
+          all(c("worstClassCorrelation", "minimumCorrelationRequired") %in%
+              names(candidate))) {
+        details <- c(
+          details,
+          paste0(
+            "corr ",
+            format(round(candidate$worstClassCorrelation, 3), nsmall = 3),
+            "/",
+            format(round(candidate$minimumCorrelationRequired, 3), nsmall = 3)
+          )
+        )
+      }
+      paste0(
+        "Candidate ", model.info$index, "\n",
+        paste(details, collapse = ", ")
+      )
+    }, character(1))
+    plot.data <- purrr::map2_dfr(
+      resolved.models,
+      candidate.labels,
+      function(resolved, candidate.label) {
+        candidate.data <- resolved$fit$CSMs
+        if (is.null(candidate.data)) {
+          candidate.data <- resolved$fit$scoredCSMs
+        }
+        dplyr::mutate(candidate.data, .candidate = candidate.label)
+      }
+    )
+    plot.data$.candidate <- factor(
+      plot.data$.candidate,
+      levels = unique(candidate.labels)
+    )
+    default.classifier <- x$settings$scoreName
+    plot.title <- "Touchstone candidate comparison"
+    plot.subtitle <- "Facet labels show kernel, hyperparameters, eligibility, and correlation/required minimum"
+  } else if (inherits(x, "touchstone_results")) {
     plot.data <- x$data
     default.classifier <- x$settings$classifier
+    model.info <- x$model
+    if (!is.null(model.info$index)) {
+      plot.title <- paste0(
+        "Touchstone candidate ", model.info$index, ": ",
+        model.info$kernel, " SVM"
+      )
+      details <- c(paste0("cost ", format(model.info$cost)))
+      if (identical(model.info$kernel, "radial") &&
+          !is.null(model.info$gamma) && is.finite(model.info$gamma)) {
+        details <- c(details, paste0("gamma ", format(model.info$gamma)))
+      }
+      if (!is.null(x$summarizationLevel)) {
+        details <- c(details, paste0("level ", x$summarizationLevel))
+      }
+      plot.subtitle <- paste(details, collapse = "; ")
+    }
   } else {
     resolved <- resolveCrosslinkFit(x, model)
     plot.data <- resolved$fit$CSMs
@@ -710,6 +795,51 @@ plotScoreCorrelation <- function(x,
       plot.data <- resolved$fit$scoredCSMs
     }
     default.classifier <- resolved$settings$scoreName
+    if (inherits(x, "touchstone_training")) {
+      model.info <- resolved$model
+      candidate <- x$candidates[
+        x$candidates$index == model.info$index,
+        ,
+        drop = FALSE
+      ]
+      plot.title <- paste0(
+        "Touchstone candidate ", model.info$index, ": ",
+        model.info$kernel, " SVM"
+      )
+      details <- c(paste0("cost ", format(model.info$cost)))
+      if (identical(model.info$kernel, "radial") &&
+          !is.null(model.info$gamma) && is.finite(model.info$gamma)) {
+        details <- c(details, paste0("gamma ", format(model.info$gamma)))
+      }
+      if (nrow(candidate) == 1 && "eligible" %in% names(candidate)) {
+        details <- c(details, if (isTRUE(candidate$eligible)) {
+          "eligible"
+        } else {
+          "ineligible"
+        })
+      }
+      if (nrow(candidate) == 1 && isTRUE(candidate$recommended)) {
+        details <- c(details, "recommended linear")
+      }
+      if (nrow(candidate) == 1 && isTRUE(candidate$recommendedRadial)) {
+        details <- c(details, "recommended radial")
+      }
+      if (nrow(candidate) == 1 &&
+          all(c("worstClassCorrelation", "minimumCorrelationRequired") %in%
+              names(candidate))) {
+        details <- c(
+          details,
+          paste0(
+            "worst correlation ",
+            format(round(candidate$worstClassCorrelation, 3), nsmall = 3),
+            " (minimum ",
+            format(round(candidate$minimumCorrelationRequired, 3), nsmall = 3),
+            ")"
+          )
+        )
+      }
+      plot.subtitle <- paste(details, collapse = "; ")
+    }
   }
 
   if (is.null(classifier)) {
@@ -720,6 +850,9 @@ plotScoreCorrelation <- function(x,
   }
   classifier <- .classifierName(rlang::enquo(classifier))
   referenceScore <- .classifierName(rlang::enquo(referenceScore))
+  if (is.null(plot.title)) {
+    plot.title <- paste0(classifier, " versus ", referenceScore)
+  }
 
   required <- c(classifier, referenceScore, "Decoy", "xlinkClass")
   missing.columns <- setdiff(required, names(plot.data))
@@ -737,7 +870,7 @@ plotScoreCorrelation <- function(x,
     stop("pointSize must be one positive, finite number.", call. = FALSE)
   }
 
-  ggplot2::ggplot(
+  result <- ggplot2::ggplot(
     plot.data,
     ggplot2::aes(
       x = .data[[classifier]],
@@ -745,9 +878,21 @@ plotScoreCorrelation <- function(x,
       color = .data$Decoy
     )
   ) +
-    ggplot2::geom_point(alpha = alpha, size = pointSize, na.rm = TRUE) +
-    ggplot2::facet_grid(rows = ggplot2::vars(.data$xlinkClass)) +
+    ggplot2::geom_point(alpha = alpha, size = pointSize, na.rm = TRUE)
+
+  result <- if (multiple.models) {
+    result + ggplot2::facet_grid(
+      rows = ggplot2::vars(.data$xlinkClass),
+      cols = ggplot2::vars(.data$.candidate)
+    )
+  } else {
+    result + ggplot2::facet_grid(rows = ggplot2::vars(.data$xlinkClass))
+  }
+
+  result +
     ggplot2::labs(
+      title = plot.title,
+      subtitle = plot.subtitle,
       x = classifier,
       y = referenceScore,
       color = "Decoy"

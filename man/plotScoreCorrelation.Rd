@@ -18,7 +18,8 @@ plotScoreCorrelation(
 \code{\link[=prepareCrosslinkResults]{prepareCrosslinkResults()}}, or a scored data frame.}
 
 \item{model}{For a training result, \code{"selected"} or \code{"linear"}, \code{"radial"},
-or a numeric candidate index.}
+a numeric candidate index, or a vector of candidate indices or model names
+to compare in columns.}
 
 \item{classifier}{Score column to plot on the x-axis. Defaults to the trained
 or prepared classifier when available, otherwise \code{"SVM.score"}.}
@@ -35,6 +36,9 @@ A \code{ggplot2} plot.
 \description{
 Provides a compact visual diagnostic for checking whether a trained score
 behaves sensibly relative to \code{Score.Diff}. Points are colored by target/decoy
-status and faceted into inter- and intra-protein matches. The returned
-\code{ggplot} can be extended with additional ggplot2 layers.
+status and faceted into inter- and intra-protein matches. Training-result
+plots identify the candidate and kernel in the title and report its
+hyperparameters, eligibility, recommendation status, and correlation check
+in the subtitle. The returned \code{ggplot} can be extended with additional
+ggplot2 layers.
 }

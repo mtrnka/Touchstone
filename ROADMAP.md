@@ -6,6 +6,10 @@ data model will remain a flat data frame. More complicated internal structures
 may be used where helpful, but package functions should return canonical flat
 tables with enough provenance to understand how each result was produced.
 
+The current release priority is to complete section 1, evaluate the finalized
+MS2 scoring workflow on the full Astral dataset, and report that analysis.
+Work in sections 2 and 3 begins only after that analysis is ready to submit.
+
 ## 1. Stabilize the binary-crosslink workflow
 
 - [x] Repair package loading, dependency declarations, and generated
