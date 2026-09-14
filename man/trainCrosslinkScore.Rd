@@ -30,9 +30,10 @@ trainCrosslinkScore(
 
 \item{complexity}{Dataset-complexity profile used for automatic feature
 selection and prefilter behavior. \code{"auto"} selects a profile from proteins
-with plausible repeated intra-protein CSM evidence (\code{Score.Diff > 10} and
-\code{numCSM > 1}); it can be overridden with \code{"small"}, \code{"medium"}, or
-\code{"large"}.}
+with plausible target CSM evidence (\code{Score.Diff > 10}) from both
+intra- and inter-protein crosslinks, while retaining a dominant-protein
+safeguard for simple systems with sparse background matches. It can be
+overridden with \code{"small"}, \code{"medium"}, or \code{"large"}.}
 
 \item{complexityBreaks}{Two increasing protein-count boundaries used by
 \code{complexity = "auto"}. The defaults assign up to 20 proteins to \code{"small"},
@@ -54,7 +55,9 @@ this value to 1 when the package is loaded.}
 \item{gamma_values}{Numeric vector of gamma values used only when radial
 kernels are explicitly requested.}
 
-\item{sd_values}{Numeric vector of Score Diff values to use for prefilitering optimiziation.}
+\item{sd_values}{Numeric vector of Score.Diff thresholds considered for the
+SVM training subset. Rows below the selected value are excluded from model
+fitting but remain in the scored results.}
 
 \item{recoveryFraction}{Minimum fraction of the best interprotein recovery
 within a kernel family required for a candidate to remain under
@@ -83,8 +86,10 @@ Scored CSMs, the URP evaluation table, and its thresholds are available
 within each fitted model.
 }
 \description{
-Performs feature selection, optional Score.Diff prefilter selection, and a
-reproducible grid search. Linear SVMs are the conservative default. Candidate
+Performs feature selection, optional Score.Diff training-subset selection,
+and a reproducible grid search. Score.Diff filtering affects which CSMs fit
+the SVM but all input CSMs are subsequently scored. Linear SVMs are the
+conservative default. Candidate
 models must reach the requested interprotein FDR with nonzero recovery and
 remain positively correlated with Score.Diff. Within each requested kernel
 family, candidates must retain a specified fraction of the best recovery;

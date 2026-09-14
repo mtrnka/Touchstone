@@ -117,3 +117,46 @@ test_that("buildSVM produces reproducible cross-fitted scores", {
   expect_identical(score.1$SVM.score, score.2$SVM.score)
   expect_true(all(is.finite(score.1$SVM.score)))
 })
+
+test_that("training-row filters do not remove low-score CSMs from scoring", {
+  input <- data.frame(
+    xlinkedResPair = rep(sprintf("pair%02d", 1:20), each = 2),
+    Decoy2 = factor(
+      rep(rep(c("Target", "Decoy"), each = 10), each = 2),
+      levels = c("Decoy", "Target")
+    ),
+    Score.Diff = c(
+      seq(12, 21.5, length.out = 20),
+      seq(1, 10.5, length.out = 20)
+    ),
+    percMatched = seq(0.1, 0.9, length.out = 40),
+    ppm = rep(seq(-2, 2, length.out = 20), 2)
+  )
+  training.rows <- input$Score.Diff >= 8
+
+  scored <- buildSVM(
+    input,
+    params = c("Score.Diff", "percMatched", "massError"),
+    sampleNo = 16,
+    seed = 11,
+    trainingRows = training.rows,
+    kernel = "linear",
+    cost = 1
+  )
+
+  expect_equal(nrow(scored), nrow(input))
+  expect_true(any(!training.rows))
+  expect_true(all(is.finite(scored$SVM.score)))
+  expect_true(all(is.finite(scored$SVM.score[!training.rows])))
+})
+
+test_that("training-row filters are validated", {
+  expect_error(
+    touchstone:::normalizeTrainingRows(c(TRUE, NA), 2),
+    "one non-missing value per row"
+  )
+  expect_error(
+    touchstone:::normalizeTrainingRows(c(TRUE, FALSE), 2),
+    "at least two rows"
+  )
+})

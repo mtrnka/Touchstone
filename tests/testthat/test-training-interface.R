@@ -41,6 +41,71 @@ test_that("automatic complexity profiles use reported protein boundaries", {
   expect_identical(large$breaks, c(smallMax = 20L, mediumMax = 200L))
 })
 
+test_that("automatic complexity does not require repeated URP observations", {
+  input <- make_complexity_data(201)
+  input$numCSM <- NULL
+
+  result <- touchstone:::resolveDatasetComplexity(input)
+
+  expect_identical(result$proteinCount, 201L)
+  expect_identical(result$selected, "large")
+  expect_false("numCSMGreaterThan" %in% names(result$evidenceCriteria))
+})
+
+test_that("automatic complexity counts both proteins in inter-protein CSMs", {
+  input <- data.frame(
+    Acc.1 = paste0("P", seq_len(101)),
+    Acc.2 = paste0("P", 102:202),
+    Decoy = "Target",
+    Score.Diff = 11,
+    xlinkClass = "interProtein"
+  )
+
+  result <- touchstone:::resolveDatasetComplexity(input)
+
+  expect_identical(result$proteinCount, 202L)
+  expect_identical(result$intraProteinCount, 0L)
+  expect_identical(result$highScoringCSMCount, 101L)
+  expect_identical(result$highScoringIntraCSMCount, 0L)
+  expect_identical(result$selected, "large")
+})
+
+test_that("automatic complexity includes annotated inter-protein classes", {
+  input <- data.frame(
+    Acc.1 = c("P1", "P3"),
+    Acc.2 = c("P2", "P4"),
+    Decoy = "Target",
+    Score.Diff = 11,
+    xlinkClass = c("interProtein, homomeric", "interProtein, heteromeric")
+  )
+
+  result <- touchstone:::resolveDatasetComplexity(
+    input,
+    complexity = "small"
+  )
+
+  expect_identical(result$proteinCount, 4L)
+})
+
+test_that("protein dominance counts participation once per CSM", {
+  input <- data.frame(
+    Acc.1 = c("P1", "P1"),
+    Acc.2 = c("P1", "P2"),
+    Decoy = "Target",
+    Score.Diff = 11,
+    xlinkClass = c("intraProtein", "interProtein")
+  )
+
+  result <- touchstone:::resolveDatasetComplexity(
+    input,
+    complexity = "small"
+  )
+
+  expect_identical(result$proteinCount, 2L)
+  expect_identical(result$intraProteinCount, 1L)
+  expect_equal(result$dominantProteinRatio, 2)
+})
+
 test_that("automatic complexity ignores unsupported background accessions", {
   input <- make_complexity_data(250)
   input$Score.Diff[-1] <- 5
@@ -123,6 +188,10 @@ make_training_complexity_data <- function(n) {
     Acc.1 = paste0("P", seq_len(n)),
     Acc.2 = paste0("P", seq_len(n)),
     Decoy = "Target",
+    Decoy2 = factor(
+      rep(c("Target", "Decoy"), length.out = n),
+      levels = c("Decoy", "Target")
+    ),
     Score.Diff = 11 + seq_len(n),
     numCSM = 2,
     percMatched = 0.5,
@@ -165,6 +234,7 @@ test_that("training records automatic complexity and selected features", {
 
   expect_identical(training$settings$complexity$selected, "small")
   expect_identical(training$settings$complexity$proteinCount, 10L)
+  expect_identical(training$settings$complexity$intraProteinCount, 10L)
   expect_identical(training$settings$complexity$rawProteinCount, 10L)
   expect_identical(training$settings$featureSource, "complexity-profile")
   expect_identical(training$settings$features, observed$params)
@@ -199,20 +269,21 @@ test_that("training records automatic complexity and selected features", {
 })
 
 test_that("large profile runs and records Score.Diff prefilter selection", {
-  input <- make_training_complexity_data(201)
+  input <- make_training_complexity_data(501)
   observed <- new.env(parent = emptyenv())
 
   testthat::local_mocked_bindings(
     chooseScoreDiffPrefilter = function(datTab, ...) {
       observed$prefilter.called <- TRUE
       list(
-        datTab = datTab[seq_len(100), , drop = FALSE],
-        preFilter.summary = tibble::tibble(sd.thresh = c(0, 10)),
-        bestPreFilter = 10
+        datTab = datTab[datTab$Score.Diff >= 413, , drop = FALSE],
+        preFilter.summary = tibble::tibble(sd.thresh = c(0, 413)),
+        bestPreFilter = 413
       )
     },
-    tuneSVM = function(datTab, params, ...) {
-      observed$tuning.rows <- nrow(datTab)
+    tuneSVM = function(datTab, params, trainingRows, ...) {
+      observed$scored.rows <- nrow(datTab)
+      observed$training.rows <- sum(trainingRows)
       observed$params <- params
       mock_tuning_result(datTab, params)
     },
@@ -225,14 +296,47 @@ test_that("large profile runs and records Score.Diff prefilter selection", {
   expect_identical(training$settings$complexity$selected, "large")
   expect_true(all(c("xlinkClass", "wtURP") %in% observed$params))
   expect_true(training$prefilter$applied)
-  expect_identical(training$prefilter$selectedScoreDiff, 10)
-  expect_identical(training$prefilter$rowsBefore, 201L)
+  expect_identical(training$prefilter$selectedScoreDiff, 413)
+  expect_identical(training$prefilter$rowsBefore, 501L)
   expect_identical(training$prefilter$rowsAfter, 100L)
-  expect_identical(observed$tuning.rows, 100L)
+  expect_identical(training$prefilter$rowsScored, 501L)
+  expect_true(training$prefilter$trainingOnly)
+  expect_identical(observed$scored.rows, 501L)
+  expect_identical(observed$training.rows, 100L)
   expect_true(training$candidates$scoreDiffPrefilterEvaluated)
-  expect_identical(training$candidates$scoreDiffPrefilter, 10)
-  expect_identical(training$candidates$rowsBeforePrefilter, 201L)
+  expect_identical(training$candidates$scoreDiffPrefilter, 413)
+  expect_identical(training$candidates$rowsBeforePrefilter, 501L)
   expect_identical(training$candidates$rowsAfterPrefilter, 100L)
+  expect_identical(training$candidates$rowsScored, 501L)
+})
+
+test_that("prefilter assessment is independent of the feature profile", {
+  input <- make_training_complexity_data(100)
+  input <- dplyr::bind_rows(replicate(6, input, simplify = FALSE))
+  observed <- new.env(parent = emptyenv())
+
+  testthat::local_mocked_bindings(
+    chooseScoreDiffPrefilter = function(datTab, ...) {
+      observed$called <- TRUE
+      list(
+        datTab = datTab,
+        preFilter.summary = tibble::tibble(sd.thresh = 10),
+        bestPreFilter = 10
+      )
+    },
+    tuneSVM = function(datTab, params, trainingRows, ...) {
+      observed$training.rows <- sum(trainingRows)
+      mock_tuning_result(datTab, params)
+    },
+    .package = "touchstone"
+  )
+
+  training <- trainCrosslinkScore(input)
+
+  expect_identical(training$settings$complexity$selected, "medium")
+  expect_true(observed$called)
+  expect_true(training$prefilter$applied)
+  expect_identical(observed$training.rows, 600L)
 })
 
 test_that("explicit params override complexity feature selection", {

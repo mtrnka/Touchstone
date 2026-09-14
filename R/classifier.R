@@ -1,7 +1,9 @@
 #' Train and select a crosslink-scoring SVM
 #'
-#' Performs feature selection, optional Score.Diff prefilter selection, and a
-#' reproducible grid search. Linear SVMs are the conservative default. Candidate
+#' Performs feature selection, optional Score.Diff training-subset selection,
+#' and a reproducible grid search. Score.Diff filtering affects which CSMs fit
+#' the SVM but all input CSMs are subsequently scored. Linear SVMs are the
+#' conservative default. Candidate
 #' models must reach the requested interprotein FDR with nonzero recovery and
 #' remain positively correlated with Score.Diff. Within each requested kernel
 #' family, candidates must retain a specified fraction of the best recovery;
@@ -14,9 +16,10 @@
 #' @param params Character vector specifying names of the features in `datTab` used to train model.
 #' @param complexity Dataset-complexity profile used for automatic feature
 #'   selection and prefilter behavior. `"auto"` selects a profile from proteins
-#'   with plausible repeated intra-protein CSM evidence (`Score.Diff > 10` and
-#'   `numCSM > 1`); it can be overridden with `"small"`, `"medium"`, or
-#'   `"large"`.
+#'   with plausible target CSM evidence (`Score.Diff > 10`) from both
+#'   intra- and inter-protein crosslinks, while retaining a dominant-protein
+#'   safeguard for simple systems with sparse background matches. It can be
+#'   overridden with `"small"`, `"medium"`, or `"large"`.
 #' @param complexityBreaks Two increasing protein-count boundaries used by
 #'   `complexity = "auto"`. The defaults assign up to 20 proteins to `"small"`,
 #'   21--200 to `"medium"`, and more than 200 to `"large"`.
@@ -30,7 +33,9 @@
 #' @param cost_values Numeric vector of cost values used for hyperparameter tuning of the SVM model
 #' @param gamma_values Numeric vector of gamma values used only when radial
 #'   kernels are explicitly requested.
-#' @param sd_values Numeric vector of Score Diff values to use for prefilitering optimiziation.
+#' @param sd_values Numeric vector of Score.Diff thresholds considered for the
+#'   SVM training subset. Rows below the selected value are excluded from model
+#'   fitting but remain in the scored results.
 #' @param recoveryFraction Minimum fraction of the best interprotein recovery
 #'   within a kernel family required for a candidate to remain under
 #'   consideration. Among these near-best candidates, stronger correlation with
@@ -101,7 +106,9 @@ trainCrosslinkScore <- function(datTab,
   # prefiltering
   preFilter.summary <- NULL
   bestPreFilter <- NULL
-  prefilter.applied <- identical(complexity.info$selected, "large")
+  prefilter.assessment <- assessScoreDiffPrefilter(datTab)
+  prefilter.applied <- prefilter.assessment$eligible
+  training.rows <- rep(TRUE, nrow(datTab))
 
   if (prefilter.applied) {
     prefilter <- chooseScoreDiffPrefilter(
@@ -121,9 +128,10 @@ trainCrosslinkScore <- function(datTab,
       fallback.threshold = min(sd_values, na.rm = TRUE)
     )
 
-    datTab <- prefilter$datTab
     preFilter.summary <- prefilter$preFilter.summary
     bestPreFilter <- prefilter$bestPreFilter
+    training.rows <- !is.na(datTab$Score.Diff) &
+      datTab$Score.Diff >= bestPreFilter
   }
 
   # Hyperparameter optimization
@@ -141,6 +149,7 @@ trainCrosslinkScore <- function(datTab,
                    kernels = kernels,
                    seed = seed,
                    splitBy = splitBy,
+                   trainingRows = training.rows,
                    verbose = verbose)
   tuned.parse <- tuned %>%
     purrr::imap_dfr(function(x,i) {
@@ -214,13 +223,15 @@ trainCrosslinkScore <- function(datTab,
       featureCount = length(params),
       features = paste(params, collapse = ", "),
       scoreDiffPrefilterEvaluated = prefilter.applied,
+      scoreDiffPrefilterReason = prefilter.assessment$reason,
       scoreDiffPrefilter = if (is.null(bestPreFilter)) {
         NA_real_
       } else {
         as.numeric(bestPreFilter)
       },
       rowsBeforePrefilter = complexity.info$rowCount,
-      rowsAfterPrefilter = nrow(datTab),
+      rowsAfterPrefilter = sum(training.rows),
+      rowsScored = nrow(datTab),
       targetFDR = targetER,
       scalingFactor = scalingFactor,
       recoveryFraction = recoveryFraction,
@@ -262,7 +273,10 @@ trainCrosslinkScore <- function(datTab,
         selectedScoreDiff = bestPreFilter,
         candidates = preFilter.summary,
         rowsBefore = complexity.info$rowCount,
-        rowsAfter = nrow(datTab)
+        rowsAfter = sum(training.rows),
+        rowsScored = nrow(datTab),
+        trainingOnly = TRUE,
+        assessment = prefilter.assessment
       ),
       settings = list(
         targetER = targetER,
@@ -274,6 +288,7 @@ trainCrosslinkScore <- function(datTab,
         costValues = cost_values,
         gammaValues = gamma_values,
         scoreDiffValues = sd_values,
+        scoreDiffPrefilterTrainingOnly = TRUE,
         seed = seed,
         splitBy = splitBy,
         features = params,
@@ -307,7 +322,9 @@ print.touchstone_training <- function(x, ...) {
     cat(
       "Complexity profile: ", x$settings$complexity$selected,
       " (", x$settings$complexity$proteinCount,
-      " supported proteins; ", x$settings$complexity$rawProteinCount,
+      " supported proteins; ", x$settings$complexity$intraProteinCount,
+      " with intra-protein support; ",
+      x$settings$complexity$rawProteinCount,
       " raw target accessions).\n",
       sep = ""
     )
@@ -326,7 +343,11 @@ print.touchstone_training <- function(x, ...) {
       sep = ""
     )
   } else {
-    cat("Score.Diff prefilter tuning was not applied.\n")
+    cat(
+      "Score.Diff prefilter tuning was not applied: ",
+      x$prefilter$assessment$reason, ".\n",
+      sep = ""
+    )
   }
   if (!is.null(x$recommendedRadial)) {
     cat("Recommended radial candidate: ", radial.index[[1]], ".\n", sep = "")
@@ -380,9 +401,7 @@ resolveDatasetComplexity <- function(datTab,
       call. = FALSE
     )
   }
-  required <- c(
-    "Acc.1", "Acc.2", "Decoy", "Score.Diff", "numCSM", "xlinkClass"
-  )
+  required <- c("Acc.1", "Acc.2", "Decoy", "Score.Diff", "xlinkClass")
   missing.columns <- setdiff(required, names(datTab))
   if (length(missing.columns) > 0) {
     stop(
@@ -405,15 +424,34 @@ resolveDatasetComplexity <- function(datTab,
 
   plausible.csms <- target.rows[
     !is.na(target.rows$Score.Diff) & target.rows$Score.Diff > 10 &
-      !is.na(target.rows$numCSM) & target.rows$numCSM > 1 &
       !is.na(target.rows$xlinkClass) &
-      target.rows$xlinkClass == "intraProtein",
+      grepl("^(intraProtein|interProtein)", target.rows$xlinkClass),
     ,
     drop = FALSE
   ]
+  plausible.intra.csms <- plausible.csms[
+    plausible.csms$xlinkClass == "intraProtein",
+    ,
+    drop = FALSE
+  ]
+  intra.proteins <- unique(c(
+    as.character(plausible.intra.csms$Acc.1),
+    as.character(plausible.intra.csms$Acc.2)
+  ))
+  intra.proteins <- intra.proteins[
+    !is.na(intra.proteins) & nzchar(intra.proteins)
+  ]
+
   protein.support <- plausible.csms %>%
-    dplyr::mutate(.protein = as.character(.data$Acc.1)) %>%
+    dplyr::mutate(.csmRow = dplyr::row_number()) %>%
+    tidyr::pivot_longer(
+      cols = c("Acc.1", "Acc.2"),
+      names_to = ".peptide",
+      values_to = ".protein"
+    ) %>%
+    dplyr::mutate(.protein = as.character(.data$.protein)) %>%
     dplyr::filter(!is.na(.data$.protein), nzchar(.data$.protein)) %>%
+    dplyr::distinct(.data$.csmRow, .data$.protein) %>%
     dplyr::count(.data$.protein, name = "highScoringCSMs") %>%
     dplyr::arrange(dplyr::desc(.data$highScoringCSMs), .data$.protein)
   protein.count <- nrow(protein.support)
@@ -445,14 +483,15 @@ resolveDatasetComplexity <- function(datTab,
     requested = complexity,
     selected = selected,
     proteinCount = protein.count,
+    intraProteinCount = length(intra.proteins),
     rawProteinCount = length(raw.proteins),
     highScoringCSMCount = nrow(plausible.csms),
+    highScoringIntraCSMCount = nrow(plausible.intra.csms),
     dominantProteinRatio = dominance.ratio,
     dominanceOverride = dominance.override,
     evidenceCriteria = list(
       scoreDiffGreaterThan = 10,
-      numCSMGreaterThan = 1,
-      xlinkClass = "intraProtein",
+      xlinkClassPattern = "^(intraProtein|interProtein)",
       decoyClass = "Target",
       dominanceRatioGreaterThan = 100
     ),
@@ -771,6 +810,49 @@ selectSVMCandidates <- function(candidates, recoveryFraction = 0.9) {
   )
 }
 
+assessScoreDiffPrefilter <- function(datTab,
+                                     min.total = 500,
+                                     min.target = 50,
+                                     min.decoy = 50) {
+  required <- c("Score.Diff", "Decoy2")
+  missing.columns <- setdiff(required, names(datTab))
+  if (length(missing.columns) > 0) {
+    return(list(
+      eligible = FALSE,
+      reason = paste0(
+        "missing required column(s): ",
+        paste(missing.columns, collapse = ", ")
+      ),
+      total = nrow(datTab),
+      target = NA_integer_,
+      decoy = NA_integer_,
+      minimums = c(total = min.total, target = min.target, decoy = min.decoy)
+    ))
+  }
+  class.values <- as.character(datTab$Decoy2)
+  n.target <- sum(class.values == "Target", na.rm = TRUE)
+  n.decoy <- sum(class.values == "Decoy", na.rm = TRUE)
+  eligible <- nrow(datTab) >= min.total && n.target >= min.target &&
+    n.decoy >= min.decoy
+  reason <- if (eligible) {
+    "sufficient target and decoy CSMs"
+  } else {
+    paste0(
+      "insufficient CSMs for prefilter comparison (observed total/target/decoy ",
+      nrow(datTab), "/", n.target, "/", n.decoy,
+      "; required ", min.total, "/", min.target, "/", min.decoy, ")"
+    )
+  }
+  list(
+    eligible = eligible,
+    reason = reason,
+    total = nrow(datTab),
+    target = n.target,
+    decoy = n.decoy,
+    minimums = c(total = min.total, target = min.target, decoy = min.decoy)
+  )
+}
+
 chooseScoreDiffPrefilter <- function(datTab,
                                      sd_values = c(0, 5, 10, 15, 20),
                                      targetER = 0.01,
@@ -1010,6 +1092,8 @@ chooseScoreDiffPrefilter <- function(datTab,
 #' @param seed Integer seed used to make cross-fitting reproducible.
 #' @param splitBy Character vector naming columns whose rows must remain together
 #'   during cross-fitting.
+#' @param trainingRows Optional logical vector selecting rows eligible for SVM
+#'   fitting. Every row in `datTab` is still scored.
 #' @param verbose Print training diagnostics.
 #' @seealso [trainCrosslinkScore()], [tuneSVM.helper()], [buildSVM()]
 #' @returns A list containing all of the SVM models at different cost and gamma values.
@@ -1025,6 +1109,7 @@ tuneSVM <- function(datTab,
                     kernels = "linear",
                     seed = 1,
                     splitBy = NULL,
+                    trainingRows = NULL,
                     verbose = FALSE) {
   param_grid <- makeSVMParameterGrid(
     cost_values = cost_values,
@@ -1042,6 +1127,7 @@ tuneSVM <- function(datTab,
                    cost, gamma, kernel,
                    seed = seed,
                    splitBy = splitBy,
+                   trainingRows = trainingRows,
                    verbose = verbose)
   })
   return(tuned)
@@ -1096,6 +1182,8 @@ makeSVMParameterGrid <- function(cost_values,
 #' @param seed Integer seed used to make cross-fitting reproducible.
 #' @param splitBy Character vector naming columns whose rows must remain together
 #'   during cross-fitting.
+#' @param trainingRows Optional logical vector selecting rows eligible for SVM
+#'   fitting. Every row in `datTab` is still scored.
 #' @param verbose Print training diagnostics.
 #' @seealso [trainCrosslinkScore()], [tuneSVM()], [buildSVM()]
 #' @returns A list containing the trained data at CSM and URP levels, score thresholds
@@ -1112,6 +1200,7 @@ tuneSVM.helper <- function(datTab,
                            kernel = "linear",
                            seed = 1,
                            splitBy = NULL,
+                           trainingRows = NULL,
                            verbose = FALSE) {
   kernel <- match.arg(kernel, c("linear", "radial"))
   if (kernel == "radial" &&
@@ -1126,6 +1215,7 @@ tuneSVM.helper <- function(datTab,
     showTab = FALSE,
     seed = seed,
     splitBy = splitBy,
+    trainingRows = trainingRows,
     verbose = verbose,
     cost = cost,
     kernel = kernel
@@ -1181,6 +1271,7 @@ tuneSVM.helper <- function(datTab,
     NA_real_
   }
 
+  normalized.training.rows <- normalizeTrainingRows(trainingRows, nrow(datTab))
   list("CSMs" = datTab.csm,
        "URPs" = datTab.urp,
        "thresh" = datTab.urp.thresh,
@@ -1192,7 +1283,9 @@ tuneSVM.helper <- function(datTab,
        "cost" = cost,
        "gamma" = gamma,
        "kernel" = kernel,
-       "sd.thresh" = min(datTab.csm$Score.Diff),
+       "sd.thresh" = min(datTab$Score.Diff[normalized.training.rows]),
+       "trainingRowCount" = sum(normalized.training.rows),
+       "scoredRowCount" = nrow(datTab),
        "params" = params)
 }
 
@@ -1212,6 +1305,9 @@ tuneSVM.helper <- function(datTab,
 #' @param splitBy Character vector naming columns whose rows must remain together
 #'   during cross-fitting. The default uses `xlinkedResPair` when present, then
 #'   a spectrum identifier, and finally individual rows.
+#' @param trainingRows Optional logical vector selecting rows eligible for SVM
+#'   fitting. Every row is scored. A row outside the training subset is scored
+#'   by both models unless its cross-fitting group was used by one model.
 #' @param verbose Print training-data diagnostics.
 #' @param ... paramters passed to `e1071:svm()` function
 #' @seealso [trainCrosslinkScore()], [tuneSVM.helper()], [tuneSVM()]
@@ -1224,19 +1320,22 @@ buildSVM <- function(datTab,
                      showTab = F,
                      seed = 1,
                      splitBy = NULL,
+                     trainingRows = NULL,
                      verbose = FALSE,
                      ...) {
   datTab$massError <- abs(datTab$ppm - mean(datTab$ppm))
+  trainingRows <- normalizeTrainingRows(trainingRows, nrow(datTab))
+  training.data <- datTab[trainingRows, , drop = FALSE]
   split <- makeCrossfitSplit(
-    datTab,
+    training.data,
     sampleNo = sampleNo,
     splitBy = splitBy,
     seed = seed
   )
   ind.1 <- split$train.1
   ind.2 <- split$train.2
-  train.1 <- datTab[ind.1,]
-  train.2 <- datTab[ind.2,]
+  train.1 <- training.data[ind.1,]
+  train.2 <- training.data[ind.2,]
   wghts.1 <- numeric(0)
   wghts.2 <- numeric(0)
   wghts.1["Target"] <- table(train.1$Decoy2)["Decoy"] / sum(table(train.1$Decoy2),na.rm=T)
@@ -1273,12 +1372,35 @@ buildSVM <- function(datTab,
   p.2 <- stats::predict(fit.2, subset(datTab, select=params),decision.values=T)
   datTab$score.1 = as.numeric(attr(p.1, "decision.values"))
   datTab$score.2 = as.numeric(attr(p.2, "decision.values"))
-  datTab[!split$score.1, "score.1"] <- NA
-  datTab[!split$score.2, "score.2"] <- NA
-  if (stats::cor(datTab$Score.Diff, datTab$score.1, use = "complete.obs") < 0) {
+  if (length(split$splitBy) == 0) {
+    training.positions <- which(trainingRows)
+    score.1 <- rep(TRUE, nrow(datTab))
+    score.2 <- rep(TRUE, nrow(datTab))
+    score.1[training.positions[split$train.1]] <- FALSE
+    score.2[training.positions[split$train.2]] <- FALSE
+  } else {
+    full.group.id <- crossfitGroupId(datTab, split$splitBy)
+    train.1.groups <- unique(split$group.id[split$train.1])
+    train.2.groups <- unique(split$group.id[split$train.2])
+    score.1 <- !full.group.id %in% train.1.groups
+    score.2 <- !full.group.id %in% train.2.groups
+  }
+  datTab[!score.1, "score.1"] <- NA
+  datTab[!score.2, "score.2"] <- NA
+  orientation.1 <- trainingRows & !is.na(datTab$score.1)
+  orientation.2 <- trainingRows & !is.na(datTab$score.2)
+  correlation.1 <- suppressWarnings(stats::cor(
+    datTab$Score.Diff[orientation.1], datTab$score.1[orientation.1],
+    use = "complete.obs"
+  ))
+  correlation.2 <- suppressWarnings(stats::cor(
+    datTab$Score.Diff[orientation.2], datTab$score.2[orientation.2],
+    use = "complete.obs"
+  ))
+  if (is.finite(correlation.1) && correlation.1 < 0) {
     datTab$score.1 <- -1 * datTab$score.1
   }
-  if (stats::cor(datTab$Score.Diff, datTab$score.2, use = "complete.obs") < 0) {
+  if (is.finite(correlation.2) && correlation.2 < 0) {
     datTab$score.2 <- -1 * datTab$score.2
   }
   datTab[[scoreName]] <- purrr::map2_dbl(datTab$score.1, datTab$score.2, function(x, y) mean(c(x, y), na.rm=T))
@@ -1288,6 +1410,45 @@ buildSVM <- function(datTab,
     print(paste("specificity:", round(tab[1]/(tab[1]+tab[3]),2)))
   }
   return(datTab)
+}
+
+normalizeTrainingRows <- function(trainingRows, n) {
+  if (is.null(trainingRows)) {
+    return(rep(TRUE, n))
+  }
+  if (!is.logical(trainingRows) || length(trainingRows) != n ||
+      anyNA(trainingRows)) {
+    stop(
+      "trainingRows must be NULL or a logical vector with one non-missing ",
+      "value per row of datTab.",
+      call. = FALSE
+    )
+  }
+  if (sum(trainingRows) < 2) {
+    stop("trainingRows must select at least two rows.", call. = FALSE)
+  }
+  trainingRows
+}
+
+crossfitGroupId <- function(datTab, splitBy) {
+  missing.split.columns <- setdiff(splitBy, names(datTab))
+  if (length(missing.split.columns) > 0) {
+    stop(
+      "Cross-fitting group column(s) not found: ",
+      paste(missing.split.columns, collapse = ", "),
+      call. = FALSE
+    )
+  }
+  if (length(splitBy) == 0) {
+    return(as.character(seq_len(nrow(datTab))))
+  }
+  group.parts <- lapply(datTab[splitBy], function(x) {
+    x <- as.character(x)
+    encoded <- paste0(nchar(enc2utf8(x), type = "bytes"), ":", x)
+    encoded[is.na(x)] <- "-1:"
+    encoded
+  })
+  do.call(paste, c(group.parts, sep = "|"))
 }
 
 makeCrossfitSplit <- function(datTab,
@@ -1319,26 +1480,7 @@ makeCrossfitSplit <- function(datTab,
     )[[1]]
   }
 
-  missing.split.columns <- setdiff(splitBy, names(datTab))
-  if (length(missing.split.columns) > 0) {
-    stop(
-      "Cross-fitting group column(s) not found: ",
-      paste(missing.split.columns, collapse = ", "),
-      call. = FALSE
-    )
-  }
-
-  if (length(splitBy) == 0) {
-    group.id <- as.character(seq_len(n))
-  } else {
-    group.parts <- lapply(datTab[splitBy], function(x) {
-      x <- as.character(x)
-      encoded <- paste0(nchar(enc2utf8(x), type = "bytes"), ":", x)
-      encoded[is.na(x)] <- "-1:"
-      encoded
-    })
-    group.id <- do.call(paste, c(group.parts, sep = "|"))
-  }
+  group.id <- crossfitGroupId(datTab, splitBy)
 
   group.rows <- split(seq_len(n), group.id)
 

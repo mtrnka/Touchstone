@@ -19,17 +19,20 @@ tables with enough provenance to understand how each result was produced.
 - [x] Define conservative feature profiles for approximately small (up to
   10--20 proteins), medium (20--200), and large (more than 200) systems. Treat
   these boundaries as starting defaults, not biological laws, and report the
-  chosen profile. Automatic selection counts proteins with plausible repeated
-  intra-protein CSM evidence rather than every reported accession, and retains
-  the original dominant-protein safeguard for small systems with background
-  matches.
+  chosen profile. Automatic selection counts both accessions participating in
+  plausible high-Score.Diff intra- and inter-protein target CSMs without
+  requiring repeated observations of the same URP, and retains the original
+  dominant-protein safeguard for small systems with background matches.
 - [x] Add explicit training and result objects, model-selection diagnostics,
   score-correlation plots, and reproducible decoy downsampling while retaining
   direct access to all fitted candidates.
 - [ ] Explicitly evaluate a small set of prefilters, including `Score.Diff` and
   minimum product-ion evidence, using validation data rather than choosing the
   setting with the largest apparent yield. Score.Diff prefilter selection is
-  now enabled for the large-system profile; product-ion filtering remains.
+  is evaluated whenever there are enough target and decoy CSMs for comparison,
+  independently of the feature-complexity profile. It limits model fitting
+  without removing lower-Score.Diff CSMs from subsequent scoring. Product-ion
+  evidence remains a reporting-polish option rather than a training prefilter.
 - [x] Make a linear SVM the default model. Radial candidates are available only
   for explicit, inspection-only experiments until independent validation shows
   a reproducible, material benefit.
@@ -50,6 +53,16 @@ tables with enough provenance to understand how each result was produced.
 - [ ] Validate the automated procedure on datasets spanning the three
   complexity profiles, including difficult DSSO data, before declaring the
   interface stable.
+- [ ] Re-test the training-only Score.Diff prefilter on the large E. coli data
+  used to develop the original procedure. Confirm that the automatic choice can
+  recover the historically useful 15--20 training thresholds and that scoring
+  the complete input recovers credible lower-Score.Diff CSMs without degrading
+  FDR or manual quality.
+- [ ] Replace the current self-inclusive, hard-thresholded `wtCSM` and `wtURP`
+  training features with `CSMsupport` and `URPsupport`. The new features should
+  measure only corroborating evidence from other CSMs or URPs, use a bounded
+  soft evidence contribution, and be compared with both the legacy features
+  and the conservative no-URP-support baseline before becoming defaults.
 
 ## 2. Repair and validate MS3 reconstruction
 
@@ -68,6 +81,10 @@ tables with enough provenance to understand how each result was produced.
   paths are stable.
 - [ ] Define adapters from other search engines into Touchstone's canonical
   column names when comparison or rescoring work makes this worthwhile.
+- [ ] Consider annotating each inter-protein pair with whether zero, one, or
+  both constituent proteins have intra-protein crosslink support. This likely
+  belongs in `calculatePairs()` as evidence annotation, not as an immediate
+  reporting filter.
 - [ ] Decide whether to remove or clearly quarantine the deprecated
   `trainClassifier()` workflow and unused parallel (`furrr`/`future`) paths.
 - [ ] Refresh the README example after the stable training and polishing APIs

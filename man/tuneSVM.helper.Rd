@@ -19,6 +19,7 @@ tuneSVM.helper(
   kernel = "linear",
   seed = 1,
   splitBy = NULL,
+  trainingRows = NULL,
   verbose = FALSE
 )
 }
@@ -47,6 +48,9 @@ the current analysis by \code{\link[=setDecoyScalingFactor]{setDecoyScalingFacto
 
 \item{splitBy}{Character vector naming columns whose rows must remain together
 during cross-fitting.}
+
+\item{trainingRows}{Optional logical vector selecting rows eligible for SVM
+fitting. Every row in \code{datTab} is still scored.}
 
 \item{verbose}{Print training diagnostics.}
 }

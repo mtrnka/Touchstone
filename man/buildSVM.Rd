@@ -14,6 +14,7 @@ buildSVM(
   showTab = F,
   seed = 1,
   splitBy = NULL,
+  trainingRows = NULL,
   verbose = FALSE,
   ...
 )
@@ -37,6 +38,10 @@ to use R's current random-number state.}
 \item{splitBy}{Character vector naming columns whose rows must remain together
 during cross-fitting. The default uses \code{xlinkedResPair} when present, then
 a spectrum identifier, and finally individual rows.}
+
+\item{trainingRows}{Optional logical vector selecting rows eligible for SVM
+fitting. Every row is scored. A row outside the training subset is scored
+by both models unless its cross-fitting group was used by one model.}
 
 \item{verbose}{Print training-data diagnostics.}
 
