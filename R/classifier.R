@@ -505,12 +505,12 @@ resolveDatasetComplexity <- function(datTab,
 
 complexityFeatureProfile <- function(complexity, datTab) {
   complexity <- match.arg(complexity, c("small", "medium", "large"))
-  core <- c("Score.Diff", "percMatched", "massError", "z", "wtCSM")
+  core <- c("Score.Diff", "percMatched", "massError", "z", "CSMsupport")
   features <- switch(
     complexity,
     small = core,
     medium = c(core, "xlinkClass"),
-    large = c(core, "wtURP", "xlinkClass")
+    large = c(core, "URPsupport", "xlinkClass")
   )
   cleavage.features <- intersect(
     c("Perc.Bond.Cleavage.1", "Perc.Bond.Cleavage.2"),

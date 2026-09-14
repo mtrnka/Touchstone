@@ -103,6 +103,24 @@ test_that("prepared results accept and record manual thresholds", {
   expect_identical(result$settings$thresholdSource, "manual")
 })
 
+test_that("prepared tables omit training-only support features", {
+  training <- make_results_test_training()
+  support.columns <- c("wtCSM", "wtURP", "CSMsupport", "URPsupport")
+  for (column in support.columns) {
+    training$recommended$CSMs[[column]] <- 1
+    training$recommended$URPs[[column]] <- 1
+  }
+
+  result <- prepareCrosslinkResults(
+    training,
+    summarizationLevel = "urp",
+    scalingFactor = 1
+  )
+
+  expect_false(any(support.columns %in% names(result$data)))
+  expect_true(all(support.columns %in% names(result$sourceCSMs)))
+})
+
 test_that("prepared results use existing summarization and threshold functions", {
   training <- make_results_test_training()
   expected <- bestProtPair(training$recommended$CSMs)
@@ -255,7 +273,9 @@ test_that("classification recalculates support counts after thresholding", {
   expect_identical(result$settings$thresholdSource, "manual")
   expect_equal(nrow(result$data), 2)
   expect_setequal(result$data$numCSM, c(2, 1))
-  expect_false(any(c("wtCSM", "wtURP") %in% names(result$data)))
+  expect_false(any(c(
+    "wtCSM", "wtURP", "CSMsupport", "URPsupport"
+  ) %in% names(result$data)))
   expect_identical(result$sourceCSMs, prepared$sourceCSMs)
   expect_identical(result$polishingAudit$rule, "threshold")
   expect_identical(result$polishingAudit$removed, 1L)

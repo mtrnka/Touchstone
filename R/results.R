@@ -117,7 +117,7 @@ prepareCrosslinkResults <- function(x,
     identical(classifier, cached.classifier) &&
     !is.null(resolved$fit$URPs)
 
-  summarized <- if (use.cached.urp) {
+  summarized <- (if (use.cached.urp) {
     resolved$fit$URPs
   } else {
     summarizeCrosslinkData(
@@ -126,7 +126,10 @@ prepareCrosslinkResults <- function(x,
       classifier = classifier,
       retainGroups = retainGroups
     )
-  }
+  }) %>%
+    dplyr::select(-dplyr::any_of(c(
+      "wtCSM", "wtURP", "CSMsupport", "URPsupport"
+    )))
 
   use.cached.thresholds <- use.cached.urp &&
     !is.null(resolved$fit$thresh) &&
@@ -348,16 +351,22 @@ classifyCrosslinkResults <- function(x, thresholds = NULL, polishing = NULL) {
   }
 
   csms <- csms %>%
-    dplyr::select(-dplyr::any_of(c("numCSM", "numURP", "wtCSM", "wtURP"))) %>%
+    dplyr::select(-dplyr::any_of(c(
+      "numCSM", "numURP", "wtCSM", "wtURP", "CSMsupport", "URPsupport"
+    ))) %>%
     calculatePairs(scalingFactor = x$settings$scalingFactor) %>%
-    dplyr::select(-dplyr::any_of(c("wtCSM", "wtURP")))
+    dplyr::select(-dplyr::any_of(c(
+      "wtCSM", "wtURP", "CSMsupport", "URPsupport"
+    )))
   summarized <- summarizeCrosslinkData(
     csms,
     summarizationLevel = x$summarizationLevel,
     classifier = classifier,
     retainGroups = x$settings$retainGroups
   ) %>%
-    dplyr::select(-dplyr::any_of(c("wtCSM", "wtURP")))
+    dplyr::select(-dplyr::any_of(c(
+      "wtCSM", "wtURP", "CSMsupport", "URPsupport"
+    )))
 
   classification.summary <- countDecoys(
     summarized,

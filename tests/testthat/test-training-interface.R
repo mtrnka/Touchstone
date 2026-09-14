@@ -166,7 +166,7 @@ test_that("complexity profile and boundaries can be overridden", {
 
 test_that("complexity feature profiles add higher-order features gradually", {
   columns <- c(
-    "Score.Diff", "percMatched", "z", "wtCSM", "wtURP", "xlinkClass",
+    "Score.Diff", "percMatched", "z", "CSMsupport", "URPsupport", "xlinkClass",
     "Perc.Bond.Cleavage.1", "Perc.Bond.Cleavage.2"
   )
   datTab <- as.data.frame(stats::setNames(rep(list(numeric()), length(columns)),
@@ -176,10 +176,11 @@ test_that("complexity feature profiles add higher-order features gradually", {
   medium <- touchstone:::complexityFeatureProfile("medium", datTab)
   large <- touchstone:::complexityFeatureProfile("large", datTab)
 
-  expect_false(any(c("xlinkClass", "wtURP") %in% small))
+  expect_true("CSMsupport" %in% small)
+  expect_false(any(c("xlinkClass", "URPsupport") %in% small))
   expect_true("xlinkClass" %in% medium)
-  expect_false("wtURP" %in% medium)
-  expect_true(all(c("xlinkClass", "wtURP") %in% large))
+  expect_false("URPsupport" %in% medium)
+  expect_true(all(c("xlinkClass", "URPsupport") %in% large))
   expect_true(all(c("Perc.Bond.Cleavage.1", "Perc.Bond.Cleavage.2") %in% small))
 })
 
@@ -196,8 +197,8 @@ make_training_complexity_data <- function(n) {
     numCSM = 2,
     percMatched = 0.5,
     z = 3,
-    wtCSM = 1,
-    wtURP = 1,
+    CSMsupport = 1,
+    URPsupport = 1,
     xlinkClass = "intraProtein"
   )
 }
@@ -238,7 +239,7 @@ test_that("training records automatic complexity and selected features", {
   expect_identical(training$settings$complexity$rawProteinCount, 10L)
   expect_identical(training$settings$featureSource, "complexity-profile")
   expect_identical(training$settings$features, observed$params)
-  expect_false(any(c("xlinkClass", "wtURP") %in% observed$params))
+  expect_false(any(c("xlinkClass", "URPsupport") %in% observed$params))
   expect_false(training$prefilter$applied)
   expect_null(training$prefilter$selectedScoreDiff)
   expect_true(all(c(
@@ -294,7 +295,7 @@ test_that("large profile runs and records Score.Diff prefilter selection", {
 
   expect_true(observed$prefilter.called)
   expect_identical(training$settings$complexity$selected, "large")
-  expect_true(all(c("xlinkClass", "wtURP") %in% observed$params))
+  expect_true(all(c("xlinkClass", "URPsupport") %in% observed$params))
   expect_true(training$prefilter$applied)
   expect_identical(training$prefilter$selectedScoreDiff, 413)
   expect_identical(training$prefilter$rowsBefore, 501L)

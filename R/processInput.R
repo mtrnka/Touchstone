@@ -226,7 +226,20 @@ calculateDecoys <- function(datTab) {
   return(datTab)
 }
 
-#' Determine residue, peptide,and protein pairs
+#' Determine residue, peptide, and protein pairs
+#'
+#' In addition to raw CSM and URP counts, this function calculates two
+#' corroborating-evidence features for classifier training. `CSMsupport` uses
+#' evidence from other CSMs assigned to the same unique residue pair, while
+#' `URPsupport` uses evidence from other unique residue pairs assigned to the
+#' same protein pair. The observation being scored is excluded at the relevant
+#' level. Each supporting observation receives a logistic weight centered at a
+#' Score.Diff of 15 with scale 2.5; observations below Score.Diff 5 contribute
+#' exactly zero. The summed support is transformed with `log1p()`.
+#'
+#' The legacy self-inclusive `wtCSM` and `wtURP` columns are retained for
+#' compatibility and controlled comparisons, but are not used by the new
+#' automatic feature profiles.
 #'
 #' @param datTab Parsed CLMS search results.
 #' @param scalingFactor An integer describing how many times larger the decoy
@@ -282,22 +295,44 @@ calculatePairs <- function(datTab, scalingFactor = the$decoyScalingFactor){
   datTab$xlinkedResPair <- as.factor(datTab$xlinkedResPair)
   datTab$xlinkedProtPair <- as.factor(datTab$xlinkedProtPair)
   datTab$xlinkedPepPair <- as.factor(datTab$xlinkedPepPair)
+  datTab$.evidenceWeight <- crosslinkEvidenceWeight(datTab$Score.Diff)
   datTab <- datTab %>%
     add_count(.data$xlinkedResPair, name="numCSM") %>%
     group_by(.data$xlinkedResPair) %>%
-    mutate(wtCSM = log1p(sum(.data$Score.Diff >= 15))) %>%
+    mutate(
+      wtCSM = log1p(sum(.data$Score.Diff >= 15)),
+      CSMsupport = log1p(pmax(
+        0,
+        sum(.data$.evidenceWeight) - .data$.evidenceWeight
+      ))
+    ) %>%
     ungroup()
   uniqueProtCount <- datTab %>%
     select("xlinkedProtPair", "xlinkedResPair", "Score.Diff") %>%
     group_by(.data$xlinkedProtPair, .data$xlinkedResPair) %>%
     filter(.data$Score.Diff == max(.data$Score.Diff)) %>%
     slice(1) %>%
+    mutate(.urpEvidenceWeight = crosslinkEvidenceWeight(.data$Score.Diff)) %>%
     group_by(.data$xlinkedProtPair) %>%
     add_count(name = "numURP") %>%
-    mutate(wtURP = log1p(sum(.data$Score.Diff >= 15))) %>%
+    mutate(
+      wtURP = log1p(sum(.data$Score.Diff >= 15)),
+      URPsupport = log1p(pmax(
+        0,
+        sum(.data$.urpEvidenceWeight) - .data$.urpEvidenceWeight
+      ))
+    ) %>%
     ungroup() %>%
-    select(-"Score.Diff")
-  datTab <- left_join(select(datTab, -any_of(c("numURP", "wtURP"))), uniqueProtCount, by=c("xlinkedProtPair","xlinkedResPair"))
+    select(-"Score.Diff", -".urpEvidenceWeight")
+  datTab <- left_join(
+    select(
+      datTab,
+      -any_of(c("numURP", "wtURP", "URPsupport"))
+    ),
+    uniqueProtCount,
+    by = c("xlinkedProtPair", "xlinkedResPair")
+  ) %>%
+    select(-".evidenceWeight")
   if ("Module.1" %in% names(datTab) & "Module.2" %in% names(datTab)) {
     datTab <- datTab %>%
       mutate(Module.1 = as.character(.data$Module.1),
@@ -317,6 +352,19 @@ calculatePairs <- function(datTab, scalingFactor = the$decoyScalingFactor){
     datTab <- calculateProductIons(datTab)
   }
   return(datTab)
+}
+
+crosslinkEvidenceWeight <- function(scoreDiff,
+                                    floor = 5,
+                                    center = 15,
+                                    scale = 2.5) {
+  scoreDiff <- as.numeric(scoreDiff)
+  weight <- rep(0, length(scoreDiff))
+  contributes <- !is.na(scoreDiff) & scoreDiff >= floor
+  weight[contributes] <- stats::plogis(
+    (scoreDiff[contributes] - center) / scale
+  )
+  weight
 }
 
 #' Count number of CSMs per URP and the number of URPs per PP
