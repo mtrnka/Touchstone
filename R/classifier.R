@@ -4,12 +4,15 @@
 #' and a reproducible grid search. Score.Diff filtering affects which CSMs fit
 #' the SVM but all input CSMs are subsequently scored. Linear SVMs are the
 #' conservative default. Candidate
-#' models must reach the requested interprotein FDR with nonzero recovery and
-#' remain positively correlated with Score.Diff. Within each requested kernel
-#' family, candidates must retain a specified fraction of the best recovery;
-#' the recommendation then favors stronger correlation with Score.Diff, followed
-#' by average low-FDR recovery and less flexible hyperparameters. The overall
-#' recommendation is the best eligible linear model. When radial kernels are
+#' models must reach the requested FDR in at least one crosslink class and retain
+#' a positive within-class relationship between SVM.score and Score.Diff.
+#' Within each requested kernel family, candidates must retain a specified
+#' fraction of the best recovery among credible models. Interprotein recovery is
+#' used when available; otherwise selection falls back to intraprotein recovery.
+#' The recommendation then favors the strongest correlation in the candidate's
+#' weakest evaluable crosslink class, followed by less flexible
+#' hyperparameters. The overall recommendation is the best eligible linear
+#' model. When radial kernels are
 #' requested, their separate recommendation is returned as `recommendedRadial`.
 #'
 #' @param datTab Parsed CLMS search results
@@ -36,10 +39,16 @@
 #' @param sd_values Numeric vector of Score.Diff thresholds considered for the
 #'   SVM training subset. Rows below the selected value are excluded from model
 #'   fitting but remain in the scored results.
-#' @param recoveryFraction Minimum fraction of the best interprotein recovery
-#'   within a kernel family required for a candidate to remain under
-#'   consideration. Among these near-best candidates, stronger correlation with
-#'   Score.Diff is preferred. Defaults to 0.9.
+#' @param recoveryFraction Minimum fraction of the best recovery within a kernel
+#'   family required for a credible candidate to remain under consideration.
+#'   Interprotein recovery is used when available; otherwise intraprotein
+#'   recovery is used. Among these near-best candidates, stronger within-class
+#'   correlation with Score.Diff is preferred. Defaults to 0.9.
+#' @param minLinearCorrelation Minimum acceptable worst within-class Spearman
+#'   correlation for linear candidates. Defaults to 0.2.
+#' @param minRadialCorrelation Minimum acceptable worst within-class Spearman
+#'   correlation for radial candidates. Defaults to 0.5 because radial models
+#'   can produce flexible, non-monotonic score relationships.
 #' @param kernels Character vector of SVM kernels to evaluate. The conservative
 #'   default is `"linear"`; include `"radial"` to evaluate radial candidates.
 #'   Each requested kernel family receives its own recommendation, while the
@@ -55,7 +64,11 @@
 #'   audit table, fitted candidate models, prefilter information, and training
 #'   settings.
 #'   Scored CSMs, the URP evaluation table, and its thresholds are available
-#'   within each fitted model.
+#'   within each fitted model. Candidate diagnostics report Spearman
+#'   correlations between SVM.score and Score.Diff separately for target inter-
+#'   and intraprotein CSMs, both across the full score range and within the upper
+#'   half ranked by Score.Diff. A candidate's weakest available correlation must
+#'   meet the configured minimum for its kernel family.
 #' @export
 trainCrosslinkScore <- function(datTab,
                                 params = NULL,
@@ -69,6 +82,8 @@ trainCrosslinkScore <- function(datTab,
                                 gamma_values = c(0.001, 0.01, 0.05, 0.1),
                                 sd_values = c(0,5,10,15,20),
                                 recoveryFraction = 0.9,
+                                minLinearCorrelation = 0.2,
+                                minRadialCorrelation = 0.5,
                                 kernels = "linear",
                                 seed = 1,
                                 splitBy = NULL,
@@ -78,6 +93,18 @@ trainCrosslinkScore <- function(datTab,
   if (length(scalingFactor) != 1 || !is.finite(scalingFactor) ||
       scalingFactor <= 0) {
     stop("scalingFactor must be one positive, finite number.", call. = FALSE)
+  }
+  correlation.minimums <- c(
+    linear = minLinearCorrelation,
+    radial = minRadialCorrelation
+  )
+  if (any(lengths(list(minLinearCorrelation, minRadialCorrelation)) != 1) ||
+      any(!is.finite(correlation.minimums)) ||
+      any(correlation.minimums < 0 | correlation.minimums > 1)) {
+    stop(
+      "minLinearCorrelation and minRadialCorrelation must each be one finite number between 0 and 1.",
+      call. = FALSE
+    )
   }
 
   complexity.info <- resolveDatasetComplexity(
@@ -171,7 +198,8 @@ trainCrosslinkScore <- function(datTab,
       thresholds <- candidateThresholds(x$thresh)
       inter.hits <- as_scalar_numeric(x$interHits, default = 0)
       intra.hits <- as_scalar_numeric(x$intraHits, default = 0)
-      tibble::tibble(
+      diagnostics <- summarizeScoreBehavior(x$CSMs, scoreName = scoreName)
+      dplyr::bind_cols(tibble::tibble(
         "index" = i,
         "kernel" = x$kernel,
         "cost" = x$cost,
@@ -183,30 +211,34 @@ trainCrosslinkScore <- function(datTab,
         "intraHits" = intra.hits,
         "totalHits" = inter.hits + intra.hits,
         "achievedFDR" = achieved.fdr,
-        "scoreCorrelation" = x$corScore / 100,
-        "targetFDRReached" = any(
+        "interTargetFDRReached" = any(
           x$errorTable$fdr.inter <= targetER & x$errorTable$inter > 0,
           na.rm = TRUE
+        ),
+        "intraTargetFDRReached" = any(
+          x$errorTable$fdr.intra <= targetER & x$errorTable$intra > 0,
+          na.rm = TRUE
         )
-      )
+      ), diagnostics)
     }) %>%
     mutate(
-      eligible = .data$targetFDRReached &
-        is.finite(.data$interInt) &
-        .data$interHits > 0 &
-        is.finite(.data$scoreCorrelation) &
-        .data$scoreCorrelation > 0,
+      targetFDRReached = .data$interTargetFDRReached |
+        .data$intraTargetFDRReached,
+      minimumCorrelationRequired = dplyr::if_else(
+        .data$kernel == "radial",
+        minRadialCorrelation,
+        minLinearCorrelation
+      ),
+      correlationCredible = .data$correlationAvailable &
+        .data$worstClassCorrelation >= .data$minimumCorrelationRequired,
+      eligible = .data$targetFDRReached & .data$correlationCredible,
       rejectionReason = dplyr::case_when(
         !.data$targetFDRReached ~
-          "Target interprotein FDR was not reached with nonzero hits",
-        !is.finite(.data$interInt) ~
-          "FDR-versus-hit summary was not finite",
-        .data$interHits <= 0 ~
-          "No interprotein hits at the target FDR",
-        !is.finite(.data$scoreCorrelation) ~
-          "Score correlation was not finite",
-        .data$scoreCorrelation <= 0 ~
-          "SVM score was not positively correlated with Score.Diff",
+          "Target FDR was not reached with nonzero intra- or interprotein hits",
+        !.data$correlationAvailable ~
+          "Within-class score correlation could not be calculated",
+        !.data$correlationCredible ~
+          "Worst within-class score correlation was below the required minimum",
         TRUE ~ NA_character_
       )
     )
@@ -282,6 +314,8 @@ trainCrosslinkScore <- function(datTab,
         targetER = targetER,
         scalingFactor = scalingFactor,
         recoveryFraction = recoveryFraction,
+        minLinearCorrelation = minLinearCorrelation,
+        minRadialCorrelation = minRadialCorrelation,
         kernels = kernels,
         scoreName = scoreName,
         sampleNo = sampleNo,
@@ -355,7 +389,10 @@ print.touchstone_training <- function(x, ...) {
   compact.columns <- intersect(
     c(
       "index", "kernel", "cost", "gamma", "interHits", "intraHits",
-      "achievedFDR", "scoreCorrelation", "eligible", "recommended",
+      "achievedFDR", "interCorrelation", "intraCorrelation",
+      "interTailCorrelation", "intraTailCorrelation",
+      "worstClassCorrelation", "minimumCorrelationRequired",
+      "selectionBasis", "eligible", "recommended",
       "recommendedRadial"
     ),
     names(x$candidates)
@@ -733,10 +770,87 @@ as_scalar_numeric <- function(x, default = NA_real_) {
   x
 }
 
+safeScoreCorrelation <- function(x, y, method = "spearman") {
+  complete <- is.finite(x) & is.finite(y)
+  x <- x[complete]
+  y <- y[complete]
+  if (length(x) < 3 || length(unique(x)) < 2 || length(unique(y)) < 2) {
+    return(NA_real_)
+  }
+  suppressWarnings(stats::cor(x, y, method = method))
+}
+
+summarizeScoreBehavior <- function(datTab,
+                                   scoreName = "SVM.score",
+                                   referenceScore = "Score.Diff") {
+  required <- c(scoreName, referenceScore, "Decoy", "xlinkClass")
+  missing.columns <- setdiff(required, names(datTab))
+  if (length(missing.columns) > 0) {
+    stop(
+      "Candidate score diagnostics require column(s): ",
+      paste(missing.columns, collapse = ", "),
+      call. = FALSE
+    )
+  }
+  score <- as.numeric(datTab[[scoreName]])
+  reference <- as.numeric(datTab[[referenceScore]])
+  decoy <- as.character(datTab$Decoy)
+  link.class <- as.character(datTab$xlinkClass)
+  target.inter <- decoy == "Target" &
+    !is.na(link.class) & grepl("^interProtein", link.class)
+  target.intra <- decoy == "Target" & link.class == "intraProtein"
+
+  class.correlation <- function(rows) {
+    complete <- rows & is.finite(score) & is.finite(reference)
+    class.score <- score[complete]
+    class.reference <- reference[complete]
+    n <- length(class.score)
+    tail.n <- floor(n / 2)
+    tail.rows <- if (tail.n > 0) {
+      order(class.reference, decreasing = TRUE)[seq_len(tail.n)]
+    } else {
+      integer()
+    }
+    list(
+      full = safeScoreCorrelation(class.score, class.reference),
+      tail = safeScoreCorrelation(
+        class.score[tail.rows], class.reference[tail.rows]
+      ),
+      n = n
+    )
+  }
+
+  inter <- class.correlation(target.inter)
+  intra <- class.correlation(target.intra)
+  available.correlations <- c(
+    inter$full, intra$full, inter$tail, intra$tail
+  )
+  available.correlations <- available.correlations[
+    is.finite(available.correlations)
+  ]
+  correlation.available <- length(available.correlations) > 0
+
+  tibble::tibble(
+    interCorrelation = inter$full,
+    intraCorrelation = intra$full,
+    interTailCorrelation = inter$tail,
+    intraTailCorrelation = intra$tail,
+    interCorrelationN = inter$n,
+    intraCorrelationN = intra$n,
+    worstClassCorrelation = if (correlation.available) {
+      min(available.correlations)
+    } else {
+      NA_real_
+    },
+    correlationAvailable = correlation.available
+  )
+}
+
 selectSVMCandidates <- function(candidates, recoveryFraction = 0.9) {
   required <- c(
-    "index", "kernel", "cost", "gamma", "interInt", "interHits",
-    "scoreCorrelation", "eligible"
+    "index", "kernel", "cost", "gamma", "interHits", "intraHits",
+    "interTargetFDRReached", "intraTargetFDRReached",
+    "worstClassCorrelation", "eligible"
   )
   if (!all(required %in% names(candidates))) {
     stop("Candidate table is missing columns required for selection.",
@@ -751,15 +865,29 @@ selectSVMCandidates <- function(candidates, recoveryFraction = 0.9) {
   candidates <- candidates %>%
     dplyr::group_by(.data$kernel) %>%
     dplyr::mutate(
-      bestInterHits = if (any(.data$eligible)) {
-        max(.data$interHits[.data$eligible])
+      selectionBasis = if (any(
+        .data$eligible & .data$interTargetFDRReached & .data$interHits > 0
+      )) {
+        "inter"
+      } else {
+        "intra"
+      },
+      recoveryHits = dplyr::case_when(
+        .data$selectionBasis == "inter" & .data$interTargetFDRReached ~
+          .data$interHits,
+        .data$selectionBasis == "intra" & .data$intraTargetFDRReached ~
+          .data$intraHits,
+        TRUE ~ NA_real_
+      ),
+      bestRecoveryHits = if (any(.data$eligible)) {
+        max(.data$recoveryHits[.data$eligible], na.rm = TRUE)
       } else {
         NA_real_
       },
       recoveryRelativeToBest = dplyr::if_else(
-        .data$eligible & is.finite(.data$bestInterHits) &
-          .data$bestInterHits > 0,
-        .data$interHits / .data$bestInterHits,
+        .data$eligible & is.finite(.data$bestRecoveryHits) &
+          .data$bestRecoveryHits > 0,
+        .data$recoveryHits / .data$bestRecoveryHits,
         NA_real_
       ),
       nearBestRecovery = .data$eligible &
@@ -771,8 +899,7 @@ selectSVMCandidates <- function(candidates, recoveryFraction = 0.9) {
   near.best.models <- candidates %>%
     dplyr::filter(.data$nearBestRecovery) %>%
     dplyr::arrange(
-      dplyr::desc(.data$scoreCorrelation),
-      dplyr::desc(.data$interInt),
+      dplyr::desc(.data$worstClassCorrelation),
       .data$gamma,
       .data$cost
     )
@@ -1255,7 +1382,7 @@ tuneSVM.helper <- function(datTab,
     pull(.data$inter.int)
   top.inter.csms <- datTab.csm %>%
     filter(.data$Decoy == "Target",
-           .data$xlinkClass == "interProtein") %>%
+           grepl("^interProtein", as.character(.data$xlinkClass))) %>%
     arrange(desc(.data$Score.Diff))
   top.inter.csms <- dplyr::slice_head(
     top.inter.csms,

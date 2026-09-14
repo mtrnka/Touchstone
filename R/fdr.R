@@ -377,10 +377,18 @@ findSeparateThresholds <- function(datTab, targetER=0.01, minThreshold=-5,
                                    classifier="SVM.score", errorFUN=calculateFDR.unseparated, ...) {
   interTab <- datTab %>%
     filter(.data$xlinkClass=="interProtein")
-  interThresh <- findThreshold(interTab, targetER, minThreshold, classifier, errorFUN, ...)[[1]]
   intraTab <- datTab %>%
     filter(.data$xlinkClass=="intraProtein")
-  intraThresh <- findThreshold(intraTab, targetER, minThreshold, classifier, errorFUN, ...)[[1]]
+  interThresh <- if (nrow(interTab) == 0) {
+    Inf
+  } else {
+    findThreshold(interTab, targetER, minThreshold, classifier, errorFUN, ...)[[1]]
+  }
+  intraThresh <- if (nrow(intraTab) == 0) {
+    Inf
+  } else {
+    findThreshold(intraTab, targetER, minThreshold, classifier, errorFUN, ...)[[1]]
+  }
   return(list("intraThresh"=intraThresh, "interThresh"=interThresh))
 }
 
@@ -411,17 +419,25 @@ findSeparateThresholdsModelled <- function(datTab, targetER=0.01, minThreshold=-
     filter(.data$xlinkClass=="interProtein")
   intraTab <- datTab %>%
     filter(.data$xlinkClass=="intraProtein")
-  interThresh <- findThresholdModelled(
-    interTab, targetER, minThreshold,
-    scalingFactor = scalingFactor,
-    plot = plot,
-    classifier = classifier
-  )[[1]]
-  intraThresh <- findThreshold(
-    intraTab, targetER, minThreshold,
-    classifier = classifier,
-    scalingFactor = scalingFactor
-  )[[1]]
+  interThresh <- if (nrow(interTab) == 0) {
+    Inf
+  } else {
+    findThresholdModelled(
+      interTab, targetER, minThreshold,
+      scalingFactor = scalingFactor,
+      plot = plot,
+      classifier = classifier
+    )[[1]]
+  }
+  intraThresh <- if (nrow(intraTab) == 0) {
+    Inf
+  } else {
+    findThreshold(
+      intraTab, targetER, minThreshold,
+      classifier = classifier,
+      scalingFactor = scalingFactor
+    )[[1]]
+  }
   return(list("intraThresh"=intraThresh, "interThresh"=interThresh))
 }
 

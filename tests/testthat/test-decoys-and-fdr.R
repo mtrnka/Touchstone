@@ -214,3 +214,23 @@ test_that("classification accepts default, bare, and character score columns", {
   expect_identical(bare.result$Score.Diff, 2)
   expect_identical(character.result$Score.Diff, 2)
 })
+
+test_that("separate modelled thresholds tolerate an absent crosslink class", {
+  intra.only <- data.frame(
+    xlinkClass = rep("intraProtein", 3),
+    SVM.score = 1:3
+  )
+
+  testthat::local_mocked_bindings(
+    findThreshold = function(...) list(globalThresh = 1),
+    findThresholdModelled = function(...) {
+      stop("The absent interprotein class should not be modelled")
+    },
+    .package = "touchstone"
+  )
+
+  thresholds <- findSeparateThresholdsModelled(intra.only, plot = FALSE)
+
+  expect_identical(thresholds$intraThresh, 1)
+  expect_identical(thresholds$interThresh, Inf)
+})

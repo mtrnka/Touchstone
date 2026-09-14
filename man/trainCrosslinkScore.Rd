@@ -17,6 +17,8 @@ trainCrosslinkScore(
   gamma_values = c(0.001, 0.01, 0.05, 0.1),
   sd_values = c(0, 5, 10, 15, 20),
   recoveryFraction = 0.9,
+  minLinearCorrelation = 0.2,
+  minRadialCorrelation = 0.5,
   kernels = "linear",
   seed = 1,
   splitBy = NULL,
@@ -59,10 +61,18 @@ kernels are explicitly requested.}
 SVM training subset. Rows below the selected value are excluded from model
 fitting but remain in the scored results.}
 
-\item{recoveryFraction}{Minimum fraction of the best interprotein recovery
-within a kernel family required for a candidate to remain under
-consideration. Among these near-best candidates, stronger correlation with
-Score.Diff is preferred. Defaults to 0.9.}
+\item{recoveryFraction}{Minimum fraction of the best recovery within a kernel
+family required for a credible candidate to remain under consideration.
+Interprotein recovery is used when available; otherwise intraprotein
+recovery is used. Among these near-best candidates, stronger within-class
+correlation with Score.Diff is preferred. Defaults to 0.9.}
+
+\item{minLinearCorrelation}{Minimum acceptable worst within-class Spearman
+correlation for linear candidates. Defaults to 0.2.}
+
+\item{minRadialCorrelation}{Minimum acceptable worst within-class Spearman
+correlation for radial candidates. Defaults to 0.5 because radial models
+can produce flexible, non-monotonic score relationships.}
 
 \item{kernels}{Character vector of SVM kernels to evaluate. The conservative
 default is \code{"linear"}; include \code{"radial"} to evaluate radial candidates.
@@ -83,19 +93,26 @@ model, an optional recommended radial model, a self-contained candidate
 audit table, fitted candidate models, prefilter information, and training
 settings.
 Scored CSMs, the URP evaluation table, and its thresholds are available
-within each fitted model.
+within each fitted model. Candidate diagnostics report Spearman
+correlations between SVM.score and Score.Diff separately for target inter-
+and intraprotein CSMs, both across the full score range and within the upper
+half ranked by Score.Diff. A candidate's weakest available correlation must
+meet the configured minimum for its kernel family.
 }
 \description{
 Performs feature selection, optional Score.Diff training-subset selection,
 and a reproducible grid search. Score.Diff filtering affects which CSMs fit
 the SVM but all input CSMs are subsequently scored. Linear SVMs are the
 conservative default. Candidate
-models must reach the requested interprotein FDR with nonzero recovery and
-remain positively correlated with Score.Diff. Within each requested kernel
-family, candidates must retain a specified fraction of the best recovery;
-the recommendation then favors stronger correlation with Score.Diff, followed
-by average low-FDR recovery and less flexible hyperparameters. The overall
-recommendation is the best eligible linear model. When radial kernels are
+models must reach the requested FDR in at least one crosslink class and retain
+a positive within-class relationship between SVM.score and Score.Diff.
+Within each requested kernel family, candidates must retain a specified
+fraction of the best recovery among credible models. Interprotein recovery is
+used when available; otherwise selection falls back to intraprotein recovery.
+The recommendation then favors the strongest correlation in the candidate's
+weakest evaluable crosslink class, followed by less flexible
+hyperparameters. The overall recommendation is the best eligible linear
+model. When radial kernels are
 requested, their separate recommendation is returned as \code{recommendedRadial}.
 }
 \seealso{

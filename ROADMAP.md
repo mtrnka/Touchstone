@@ -33,14 +33,20 @@ tables with enough provenance to understand how each result was produced.
   independently of the feature-complexity profile. It limits model fitting
   without removing lower-Score.Diff CSMs from subsequent scoring. Product-ion
   evidence remains a reporting-polish option rather than a training prefilter.
-- [x] Make a linear SVM the default model. Radial candidates are available only
-  for explicit, inspection-only experiments until independent validation shows
-  a reproducible, material benefit.
+- [x] Make a linear SVM the default model. When explicitly requested, radial
+  candidates receive a separate recommendation while the overall default
+  remains linear until independent validation shows a reproducible benefit.
 - [ ] Complete the candidate audit. The candidate table now records each
   model's filters, features, parameters, validation FDR/yield, relative
-  recovery within its kernel family, eligibility, recommendation status, and
-  selection or rejection reason. Explicit repeat-split stability measurements
-  remain to be designed and validated.
+  recovery within its kernel family, concise intra- and interprotein rank
+  correlations over both the full range and high-Score.Diff tail, eligibility,
+  recommendation status, and selection or rejection reason. Models with a
+  weakest correlation below the kernel-specific minimum (0.2 for linear and
+  0.5 for radial by default) are excluded before the near-best recovery range
+  is calculated. Selection falls back to intraprotein recovery when credible
+  models recover no interprotein links.
+  Explicit repeat-split stability measurements remain to be designed and
+  validated across the Astral, E. coli, and small-system test datasets.
 - [x] Separate statistical classification from evidence polishing. Provide
   named, transparent polishing policies (for example, minimum product ions or
   backbone-ladder coverage), record the applied rules and their before/after
