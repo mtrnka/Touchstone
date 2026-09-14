@@ -33,6 +33,9 @@ tables with enough provenance to understand how each result was produced.
   independently of the feature-complexity profile. It limits model fitting
   without removing lower-Score.Diff CSMs from subsequent scoring. Product-ion
   evidence remains a reporting-polish option rather than a training prefilter.
+  The legacy low-FDR interprotein summary (`interInt`) is retained internally
+  for this prefilter choice pending validation on the original E. coli data,
+  but is no longer exposed in the hyperparameter candidate audit.
 - [x] Make a linear SVM the default model. When explicitly requested, radial
   candidates receive a separate recommendation while the overall default
   remains linear until independent validation shows a reproducible benefit.
@@ -64,11 +67,11 @@ tables with enough provenance to understand how each result was produced.
   recover the historically useful 15--20 training thresholds and that scoring
   the complete input recovers credible lower-Score.Diff CSMs without degrading
   FDR or manual quality.
-- [ ] Replace the current self-inclusive, hard-thresholded `wtCSM` and `wtURP`
-  training features with `CSMsupport` and `URPsupport`. The new features should
-  measure only corroborating evidence from other CSMs or URPs, use a bounded
-  soft evidence contribution, and be compared with both the legacy features
-  and the conservative no-URP-support baseline before becoming defaults.
+- [x] Replace the self-inclusive, hard-thresholded `wtCSM` and `wtURP` training
+  features with `CSMsupport` and `URPsupport`. The default complexity profiles
+  now use self-excluded corroborating evidence with a bounded soft contribution.
+  The legacy features remain available for compatibility and comparison but are
+  omitted from the new automatic profiles and classified reporting tables.
 
 ## 2. Repair and validate MS3 reconstruction
 

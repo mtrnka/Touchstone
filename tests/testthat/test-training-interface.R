@@ -261,6 +261,8 @@ test_that("training records automatic complexity and selected features", {
     "bestRecoveryHits", "recoveryRelativeToBest", "nearBestRecovery",
     "selectionReason"
   ) %in% names(training$candidates)))
+  expect_false("interInt" %in% names(training$candidates))
+  expect_identical(training$models[[1]]$interInt, 1)
   expect_identical(training$candidates$complexity, "small")
   expect_identical(training$candidates$featureSource, "complexity-profile")
   expect_identical(training$candidates$featureCount, length(observed$params))
