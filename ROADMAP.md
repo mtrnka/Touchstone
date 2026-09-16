@@ -8,7 +8,8 @@ tables with enough provenance to understand how each result was produced.
 
 The current release priority is to complete section 1, evaluate the finalized
 MS2 scoring workflow on the full Astral dataset, and report that analysis.
-Work in sections 2 and 3 begins only after that analysis is ready to submit.
+The ribosome example and GitHub README will then be completed before work begins
+on MS3 reconstruction or the other deferred extensions.
 
 ## 1. Stabilize the binary-crosslink workflow
 
@@ -63,9 +64,13 @@ Work in sections 2 and 3 begins only after that analysis is ready to submit.
   summarize to URP, peptide-pair, protein-pair, or module-pair. This ensures
   `numCSM` and `numURP` describe threshold-passing evidence; the training-only
   weighted count features are omitted from classified reporting tables.
-- [ ] Validate the automated procedure on datasets spanning the three
-  complexity profiles, including difficult DSSO data, before declaring the
-  interface stable.
+- [ ] Define and run an MS2 testing protocol on representative datasets spanning
+  the small, medium, and large complexity profiles, including difficult DSSO
+  data. Record the expected outputs, selected settings, model diagnostics,
+  thresholds, recovery, and seed-to-seed stability before declaring the
+  interface stable. The initial local harness is
+  `scratch/touchstoneComplexityTest.R`; this item remains open until its dataset
+  suite and repeated-seed comparisons have been reviewed.
 - [ ] Re-test the training-only Score.Diff prefilter on the large E. coli data
   used to develop the original procedure. Confirm that the automatic choice can
   recover the historically useful 15--20 training thresholds and that scoring
@@ -77,7 +82,22 @@ Work in sections 2 and 3 begins only after that analysis is ready to submit.
   The legacy features remain available for compatibility and comparison but are
   omitted from the new automatic profiles and classified reporting tables.
 
-## 2. Repair and validate MS3 reconstruction
+## 2. Analyze and present the stable MS2 workflow
+
+- [ ] Freeze the validated MS2 defaults and use that version for the full
+  Astral analysis.
+- [ ] Complete and report the full Astral analysis before revising the public
+  example.
+- [ ] Rebuild the ribosome example as a concise, reproducible end-to-end
+  demonstration of input, training, model inspection, result preparation,
+  classification, polishing, and reporting.
+- [ ] Rewrite the GitHub README around the working ribosome example, with clear
+  installation instructions, expected outputs, and links to more detailed
+  documentation where appropriate.
+- [ ] Run the README example from a clean R session and fresh package install,
+  then tag the stable public MS2 release.
+
+## 3. Repair and validate MS3 reconstruction
 
 - [ ] Inventory the scan-linking and reconstruction code in `R/linkedScans.R`
   and document the assumptions made about scan relationships.
@@ -88,7 +108,7 @@ Work in sections 2 and 3 begins only after that analysis is ready to submit.
 - [ ] Keep reconstructed-MS3 support clearly marked experimental until those
   cases pass end-to-end tests.
 
-## 3. Deferred extensions and cleanup
+## 4. Deferred extensions and cleanup
 
 - [ ] Add experimental ternary-crosslink input only after the binary and MS3
   paths are stable.
@@ -100,7 +120,5 @@ Work in sections 2 and 3 begins only after that analysis is ready to submit.
   reporting filter.
 - [ ] Decide whether to remove or clearly quarantine the deprecated
   `trainClassifier()` workflow and unused parallel (`furrr`/`future`) paths.
-- [ ] Refresh the README example after the stable training and polishing APIs
-  exist.
 - [ ] Add continuous package checks and decide how to handle the large bundled
   example data that currently produces an `R CMD check` size note.
