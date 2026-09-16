@@ -48,8 +48,9 @@ with \code{\link[=findSeparateThresholdsModelled]{findSeparateThresholdsModelled
 \value{
 A \code{touchstone_results} object containing the complete summarized
 \code{data}, its complete scored CSM source, level-specific \code{thresholds}, the
-resulting \code{fdr}, \code{fdrByClass} and \code{classificationSummary} tables stratified
-by intra- and inter-protein class, and the settings used.
+resulting \code{fdr}, exact scaling-adjusted \code{fdrByClass}, downsampled
+\code{classificationSummary} counts stratified by intra- and inter-protein
+class, and the settings used. FDR values are proportions, not percentages.
 Use \code{\link[=classifyCrosslinkResults]{classifyCrosslinkResults()}} to generate a classified and optionally
 polished reporting table with recalculated support counts.
 }

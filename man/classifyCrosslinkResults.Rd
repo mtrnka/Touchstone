@@ -24,7 +24,9 @@ evidence polishing. \code{fallbackMinScoreDiff} is considered only when
 A \code{touchstone_results} object whose \code{data} contain classified and
 optionally polished target and decoy results. The original complete scored
 CSM source is retained in \code{sourceCSMs}; \code{polishingAudit} reports whether
-each rule was applied and the number of CSMs it removed.
+each rule was applied and the number of CSMs it removed. \code{fdrByClass}
+contains exact scaling-adjusted FDR proportions from \code{\link[=calculateFDR]{calculateFDR()}};
+\code{classificationSummary} retains the downsampled counts from \code{\link[=countDecoys]{countDecoys()}}.
 }
 \description{
 Applies transparent evidence filters to the complete scored CSM source

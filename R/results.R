@@ -36,8 +36,9 @@
 #'   with [findSeparateThresholdsModelled()].
 #' @return A `touchstone_results` object containing the complete summarized
 #'   `data`, its complete scored CSM source, level-specific `thresholds`, the
-#'   resulting `fdr`, `fdrByClass` and `classificationSummary` tables stratified
-#'   by intra- and inter-protein class, and the settings used.
+#'   resulting `fdr`, exact scaling-adjusted `fdrByClass`, downsampled
+#'   `classificationSummary` counts stratified by intra- and inter-protein
+#'   class, and the settings used. FDR values are proportions, not percentages.
 #'   Use [classifyCrosslinkResults()] to generate a classified and optionally
 #'   polished reporting table with recalculated support counts.
 #' @examples
@@ -171,10 +172,12 @@ prepareCrosslinkResults <- function(x,
     classifier = classifier,
     scalingFactor = scalingFactor
   )
-  fdr.by.class <- classification.summary %>%
-    dplyr::select(dplyr::any_of(c(
-      "xlinkClass", "Target", "Decoy", "DoubleDecoy", "FDR"
-    )))
+  fdr.by.class <- calculateCrosslinkFDRByClass(
+    summarized,
+    threshold = thresholds,
+    classifier = classifier,
+    scalingFactor = scalingFactor
+  )
 
   structure(
     list(
@@ -219,6 +222,30 @@ normalizeSummarizationLevel <- function(summarizationLevel) {
     )
   }
   unname(level.aliases[[summarizationLevel]])
+}
+
+calculateCrosslinkFDRByClass <- function(datTab,
+                                         threshold,
+                                         classifier,
+                                         scalingFactor) {
+  classes <- c("interProtein", "intraProtein")
+  classes <- classes[classes %in% as.character(unique(datTab$xlinkClass))]
+  purrr::map_dfr(classes, function(class) {
+    class.data <- datTab[
+      as.character(datTab$xlinkClass) == class,
+      ,
+      drop = FALSE
+    ]
+    tibble::tibble(
+      xlinkClass = class,
+      FDR = as.numeric(calculateFDR(
+        class.data,
+        threshold = threshold,
+        classifier = classifier,
+        scalingFactor = scalingFactor
+      ))
+    )
+  })
 }
 
 summarizeCrosslinkData <- function(datTab,
@@ -302,7 +329,9 @@ validateCrosslinkThresholds <- function(thresholds) {
 #' @return A `touchstone_results` object whose `data` contain classified and
 #'   optionally polished target and decoy results. The original complete scored
 #'   CSM source is retained in `sourceCSMs`; `polishingAudit` reports whether
-#'   each rule was applied and the number of CSMs it removed.
+#'   each rule was applied and the number of CSMs it removed. `fdrByClass`
+#'   contains exact scaling-adjusted FDR proportions from [calculateFDR()];
+#'   `classificationSummary` retains the downsampled counts from [countDecoys()].
 #' @examples
 #' \dontrun{
 #' prepared <- prepareCrosslinkResults(training, "urp")
@@ -435,10 +464,12 @@ classifyCrosslinkResults <- function(x,
     classifier = classifier,
     scalingFactor = x$settings$scalingFactor
   )
-  fdr.by.class <- classification.summary %>%
-    dplyr::select(dplyr::any_of(c(
-      "xlinkClass", "Target", "Decoy", "DoubleDecoy", "FDR"
-    )))
+  fdr.by.class <- calculateCrosslinkFDRByClass(
+    summarized,
+    threshold = thresholds,
+    classifier = classifier,
+    scalingFactor = x$settings$scalingFactor
+  )
   result.settings <- x$settings
   result.settings$thresholdSource <- threshold.source
   result.settings$polishing <- polishing
@@ -732,6 +763,9 @@ print.touchstone_results <- function(x, ...) {
     "; calculated FDR ", format(x$fdr), ".\n",
     sep = ""
   )
+  cat("Exact calculated FDR by class (proportions):\n")
+  print(x$fdrByClass)
+  cat("Downsampled decoy-count summary:\n")
   print(x$classificationSummary)
   invisible(x)
 }

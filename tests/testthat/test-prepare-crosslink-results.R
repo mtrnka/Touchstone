@@ -62,7 +62,7 @@ test_that("prepared URP results reuse training output and classify it", {
       tibble::tibble(xlinkClass = "interProtein", Target = 1, FDR = 0)
     },
     calculateFDR = function(datTab, threshold, scalingFactor, ...) {
-      observed$fdr.data <- datTab
+      observed$fdr.data <- c(observed$fdr.data, list(datTab))
       observed$fdr.threshold <- threshold
       observed$fdr.scalingFactor <- scalingFactor
       0.012
@@ -79,13 +79,17 @@ test_that("prepared URP results reuse training output and classify it", {
   expect_identical(result$thresholds, training$recommended$thresh)
   expect_identical(observed$threshold, training$recommended$thresh)
   expect_identical(observed$scalingFactor, 5)
-  expect_identical(observed$fdr.data, result$data)
+  expect_identical(observed$fdr.data[[1]], result$data)
+  expect_length(observed$fdr.data, 3)
   expect_identical(observed$fdr.threshold, result$thresholds)
   expect_identical(observed$fdr.scalingFactor, 5)
   expect_identical(result$fdr, 0.012)
   expect_identical(
     result$fdrByClass,
-    tibble::tibble(xlinkClass = "interProtein", Target = 1, FDR = 0)
+    tibble::tibble(
+      xlinkClass = c("interProtein", "intraProtein"),
+      FDR = c(0.012, 0.012)
+    )
   )
   expect_identical(result$summarizationLevel, "urp")
   expect_identical(result$model$kernel, "linear")
@@ -105,6 +109,23 @@ test_that("prepared results accept and record manual thresholds", {
 
   expect_identical(result$thresholds, manual)
   expect_identical(result$settings$thresholdSource, "manual")
+})
+
+test_that("class-specific FDR uses exact scaling-factor correction", {
+  result <- prepareCrosslinkResults(
+    make_results_test_training(),
+    thresholds = -100,
+    scalingFactor = 5
+  )
+
+  expect_equal(
+    result$fdrByClass,
+    tibble::tibble(
+      xlinkClass = c("interProtein", "intraProtein"),
+      FDR = c(0.2, 0)
+    )
+  )
+  expect_true("FDR" %in% names(result$classificationSummary))
 })
 
 test_that("prepared tables omit training-only support features", {
