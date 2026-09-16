@@ -73,6 +73,22 @@ separate at every summarization level.
   interface stable. The initial local harness is
   `scratch/touchstoneComplexityTest.R`; this item remains open until its dataset
   suite and repeated-seed comparisons have been reviewed.
+- [x] Validate the current small-system workflow against the collaborator-
+  delivered TRiC sample-1 result. The exact historical thresholding and ladder-
+  polishing order reproduced the same total of 554 target URPs, sharing 277 of
+  278 inter-protein and 272 of 276 intra-protein URPs. Retain the historical
+  sequential-ladder requirement as an explicit conservative reporting policy;
+  do not treat the high open/closed-structure violation rates as a useful truth
+  set for further tuning.
+- [ ] Complete validation of the HCD and EThcD translocon results. The initial
+  4UG0 comparison found a higher mapped inter-protein violation rate for EThcD
+  than HCD, so the larger EThcD result cannot yet be accepted solely as improved
+  fragmentation. Trace the historical Keenan/eLife analysis, compare shared and
+  fragmentation-method-specific links, and test whether EThcD-only recovery is
+  supported by improved peptide-2 fragmentation or reflects a liberal score
+  threshold. The same comparison supports de-emphasizing radial models, whose
+  unique additions were more violation-prone; radial remains an explicitly
+  requested exploratory option rather than a public default.
 - [x] Re-test the training-only Score.Diff prefilter on the large E. coli data
   used to develop the original procedure. Fixed linear models at Score.Diff
   thresholds 0, 5, 10, 15, and 20 were scored against the complete input, with
@@ -128,7 +144,20 @@ separate at every summarization level.
 - [ ] Keep reconstructed-MS3 support clearly marked experimental until those
   cases pass end-to-end tests.
 
-## 4. Deferred extensions and cleanup
+## 4. Prospector integration and deferred extensions
+
+- [ ] Improve integration between Protein Prospector Search Compare and
+  Touchstone. Detect and canonicalize the optional MS-Product-derived fields
+  for distinct product-ion cleavages, sequential/gapped ladders, and percent
+  bond cleavage; report clearly when those annotations were not requested in
+  Search Compare rather than treating their absence as failed evidence.
+- [ ] Define reporting policies that degrade safely when MS-Product annotations
+  are unavailable. Statistical classification must remain usable without these
+  optional fields, while ion- or ladder-based polishing records whether it was
+  applied, skipped for the entire dataset, or unavailable for particular rows.
+  Provide concise instructions for generating the required Search Compare
+  output and revisit more direct Prospector-to-Touchstone transfer if a stable
+  interface becomes available.
 
 - [ ] Add experimental ternary-crosslink input only after the binary and MS3
   paths are stable.
@@ -138,6 +167,11 @@ separate at every summarization level.
   both constituent proteins have intra-protein crosslink support. This likely
   belongs in `calculatePairs()` as evidence annotation, not as an immediate
   reporting filter.
+- [ ] Reconsider sequential ladder compliance as a possible model feature only
+  if stringent manual polishing is repeatedly needed in independent datasets.
+  Until then, keep it separate from statistical classification as a transparent
+  evidence-quality policy rather than tuning the SVM to reproduce the TRiC
+  reporting rule.
 - [ ] Revisit a dedicated PPI results format only after the bounded PPI audit.
   A future format may separate one-row-per-PPI summaries from URP/CSM evidence
   mappings, but the current best-row representation remains sufficient for the
