@@ -150,14 +150,22 @@ separate at every summarization level.
   Touchstone. Detect and canonicalize the optional MS-Product-derived fields
   for distinct product-ion cleavages, sequential/gapped ladders, and percent
   bond cleavage; report clearly when those annotations were not requested in
-  Search Compare rather than treating their absence as failed evidence.
+  Search Compare rather than treating their absence as failed evidence. Keep
+  product-ion evidence restricted to the established backbone series and their
+  cleavable-crosslinker variants (b/c and y/z with the supported `*`/`#`
+  notation), collapsed to unique cleavage positions. Do not count neutral-loss
+  variants, a ions, precursor/MH ions, or P-type diagnostic ions. Preserve the
+  existing parser behavior until representative Prospector strings and
+  regression fixtures establish any nomenclature change.
 - [ ] Define reporting policies that degrade safely when MS-Product annotations
   are unavailable. Statistical classification must remain usable without these
   optional fields, while ion- or ladder-based polishing records whether it was
   applied, skipped for the entire dataset, or unavailable for particular rows.
-  Provide concise instructions for generating the required Search Compare
-  output and revisit more direct Prospector-to-Touchstone transfer if a stable
-  interface becomes available.
+  Allow an explicitly requested `Score.Diff >= 5` polishing fallback when ion
+  annotations are unavailable; record the substitution rather than switching
+  silently. Provide concise instructions for generating the required Search
+  Compare output and revisit more direct Prospector-to-Touchstone transfer if a
+  stable interface becomes available.
 
 - [ ] Add experimental ternary-crosslink input only after the binary and MS3
   paths are stable.

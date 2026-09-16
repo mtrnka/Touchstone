@@ -271,7 +271,7 @@ test_that("classification recalculates support counts after thresholding", {
     scalingFactor = 1
   )
 
-  result <- classifyCrosslinkResults(prepared)
+  result <- classifyCrosslinkResults(prepared, polishing = NULL)
 
   expect_identical(result$stage, "classified")
   expect_identical(result$settings$thresholdSource, "manual")
@@ -308,6 +308,7 @@ test_that("classification applies named Prospector-style polishing rules", {
 
   result <- classifyCrosslinkResults(
     prepared,
+    thresholds = -100,
     polishing = list(
       minPepLen = 5,
       minPepScore = 5,
@@ -322,8 +323,8 @@ test_that("classification applies named Prospector-style polishing rules", {
   expect_identical(
     result$polishingAudit$rule,
     c(
-      "threshold", "minPepLen", "minPepScore", "minScoreDiff", "minIons",
-      "minLadderCoverage"
+      "minPepLen", "minPepScore", "minScoreDiff", "minIons",
+      "minLadderCoverage", "threshold"
     )
   )
   expect_identical(
@@ -359,17 +360,127 @@ test_that("classification skips and reports unavailable polishing evidence", {
   expect_identical(result$stage, "classified")
   expect_identical(
     result$polishingAudit$rule,
-    c("threshold", "minPepScore", "minIons", "minLadderCoverage")
+    c("minPepScore", "minIons", "minLadderCoverage", "threshold")
   )
   expect_identical(
     result$polishingAudit$applied,
-    c(TRUE, FALSE, FALSE, FALSE)
+    c(FALSE, FALSE, FALSE, TRUE)
   )
-  expect_match(result$polishingAudit$reason[[2]], "Sc.1, Sc.2")
-  expect_match(result$polishingAudit$reason[[3]], "numProdIons.1")
-  expect_match(result$polishingAudit$reason[[4]], "ladderLen.1")
+  expect_match(result$polishingAudit$reason[[1]], "Sc.1, Sc.2")
+  expect_match(result$polishingAudit$reason[[2]], "numProdIons.1")
+  expect_match(result$polishingAudit$reason[[3]], "ladderLen.1")
   expect_error(
     classifyCrosslinkResults(prepared, polishing = list(minProductIons = 3)),
     "Unknown polishing option"
   )
+})
+
+test_that("default classification requires three cleavages per peptide", {
+  csms <- make_results_test_training()$recommended$CSMs %>%
+    dplyr::mutate(
+      numProdIons.1 = c(3, 2, 3, 3),
+      numProdIons.2 = c(3, 3, 3, 3)
+    )
+  prepared <- prepareCrosslinkResults(
+    csms,
+    thresholds = -100,
+    scalingFactor = 1
+  )
+
+  result <- classifyCrosslinkResults(prepared, thresholds = -100)
+
+  expect_identical(result$stage, "polished")
+  expect_identical(result$settings$polishing, list(minIons = 3))
+  expect_identical(result$polishingAudit$rule, c("minIons", "threshold"))
+  expect_identical(result$polishingAudit$removed, c(1L, 0L))
+})
+
+test_that("stored manual thresholds remain authoritative during polishing", {
+  csms <- make_results_test_training()$recommended$CSMs %>%
+    dplyr::mutate(numProdIons.1 = 3, numProdIons.2 = 3)
+  prepared <- prepareCrosslinkResults(
+    csms,
+    thresholds = list(interThresh = 3.5, intraThresh = 1.5),
+    scalingFactor = 1
+  )
+
+  result <- classifyCrosslinkResults(prepared)
+
+  expect_identical(result$thresholds, prepared$thresholds)
+  expect_identical(result$settings$thresholdSource, "manual")
+})
+
+test_that("Score.Diff fallback is used only when ion columns are unavailable", {
+  prepared <- prepareCrosslinkResults(
+    make_results_test_training(),
+    thresholds = -100,
+    scalingFactor = 1
+  )
+  observed.warnings <- character()
+  fallback <- withCallingHandlers(
+    classifyCrosslinkResults(
+      prepared,
+      thresholds = -100,
+      polishing = list(minIons = 3, fallbackMinScoreDiff = 17)
+    ),
+    warning = function(warning) {
+      observed.warnings <<- c(observed.warnings, conditionMessage(warning))
+      invokeRestart("muffleWarning")
+    }
+  )
+
+  expect_length(observed.warnings, 1)
+  expect_identical(
+    fallback$polishingAudit$rule,
+    c("minIons", "fallbackMinScoreDiff", "threshold")
+  )
+  expect_identical(fallback$polishingAudit$applied, c(FALSE, TRUE, TRUE))
+  expect_identical(fallback$polishingAudit$removed, c(0L, 2L, 0L))
+
+  csms <- make_results_test_training()$recommended$CSMs %>%
+    dplyr::mutate(numProdIons.1 = 3, numProdIons.2 = 3)
+  with.ions <- prepareCrosslinkResults(
+    csms,
+    thresholds = -100,
+    scalingFactor = 1
+  )
+  ion.result <- classifyCrosslinkResults(
+    with.ions,
+    thresholds = -100,
+    polishing = list(minIons = 3, fallbackMinScoreDiff = 17)
+  )
+
+  expect_identical(ion.result$polishingAudit$applied, c(TRUE, FALSE, TRUE))
+  expect_match(ion.result$polishingAudit$reason[[2]], "fallback not needed")
+  expect_error(
+    classifyCrosslinkResults(
+      prepared,
+      polishing = list(fallbackMinScoreDiff = 5)
+    ),
+    "requires minIons"
+  )
+})
+
+test_that("polishing precedes modelled reporting thresholds", {
+  training <- make_results_test_training()
+  training$recommended$CSMs <- training$recommended$CSMs %>%
+    dplyr::mutate(
+      numProdIons.1 = c(3, 2, 3, 3),
+      numProdIons.2 = 3
+    )
+  prepared <- prepareCrosslinkResults(training)
+  observed <- new.env(parent = emptyenv())
+  testthat::local_mocked_bindings(
+    findSeparateThresholdsModelled = function(datTab, ...) {
+      observed$data <- datTab
+      list(interThresh = 2.5, intraThresh = 1.5)
+    },
+    .package = "touchstone"
+  )
+
+  result <- classifyCrosslinkResults(prepared)
+
+  expect_identical(result$settings$thresholdSource, "polished-modelled")
+  expect_identical(max(observed$data$numCSM), 1L)
+  expect_identical(result$polishingAudit$rule, c("minIons", "threshold"))
 })

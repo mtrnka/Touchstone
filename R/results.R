@@ -269,29 +269,36 @@ validateCrosslinkThresholds <- function(thresholds) {
 
 #' Classify and optionally polish prepared crosslink results
 #'
-#' Applies a reporting threshold to the complete scored CSM source retained by
-#' [prepareCrosslinkResults()], optionally applies transparent evidence filters,
-#' recalculates support counts with [calculatePairs()], and only then summarizes
-#' to the requested reporting level. This keeps `numCSM` and `numURP` aligned
-#' with the evidence that actually passes the reporting policy.
+#' Applies transparent evidence filters to the complete scored CSM source
+#' retained by [prepareCrosslinkResults()], constructs the requested reporting
+#' level from the surviving CSMs, and estimates a new reporting threshold when
+#' polishing was applied. The threshold is then applied back to the polished
+#' CSMs before support counts are recalculated with [calculatePairs()] and the
+#' final reporting table is constructed. This keeps `numCSM` and `numURP`
+#' aligned with the evidence that actually passes the reporting policy.
 #'
 #' Polishing is supplied as a named list. Its names intentionally follow
 #' [readProspectorXLOutput()]: `minPepLen`, `minPepScore`, `minScoreDiff`, and
 #' `minIons`. The additional `minLadderCoverage` rule requires both peptides'
 #' sequential product-ion ladder lengths to be at least that fraction of their
-#' peptide lengths. Only explicitly supplied rules are considered. When the
-#' columns needed by a requested rule were not selected in the Search Compare
-#' output, that rule is skipped with a warning and recorded as unavailable in
-#' `polishingAudit`.
+#' peptide lengths. By default, each peptide must have at least three distinct
+#' backbone cleavage positions when product-ion annotations are available. Set
+#' `polishing = NULL` to disable that default. `fallbackMinScoreDiff` may be
+#' supplied with `minIons` to apply a Score.Diff cutoff only when the product-ion
+#' columns are unavailable. When the columns needed by a requested rule were not
+#' selected in the Search Compare output, that rule is skipped with a warning
+#' and recorded as unavailable in `polishingAudit`.
 #'
 #' @param x A `touchstone_results` object returned by
 #'   [prepareCrosslinkResults()].
 #' @param thresholds Optional manual threshold. Defaults to the threshold stored
 #'   in `x` and accepts the same forms as the `thresholds` argument to
 #'   [prepareCrosslinkResults()].
-#' @param polishing `NULL` for no evidence polishing, or a named list containing
-#'   any of `minPepLen`, `minPepScore`, `minScoreDiff`, `minIons`, and
-#'   `minLadderCoverage`.
+#' @param polishing A named list containing any of `minPepLen`, `minPepScore`,
+#'   `minScoreDiff`, `minIons`, `fallbackMinScoreDiff`, and
+#'   `minLadderCoverage`. The default is `list(minIons = 3)`. Use `NULL` for no
+#'   evidence polishing. `fallbackMinScoreDiff` is considered only when
+#'   `minIons` was requested but its product-ion columns are unavailable.
 #' @return A `touchstone_results` object whose `data` contain classified and
 #'   optionally polished target and decoy results. The original complete scored
 #'   CSM source is retained in `sourceCSMs`; `polishingAudit` reports whether
@@ -306,7 +313,9 @@ validateCrosslinkThresholds <- function(thresholds) {
 #' )
 #' }
 #' @export
-classifyCrosslinkResults <- function(x, thresholds = NULL, polishing = NULL) {
+classifyCrosslinkResults <- function(x,
+                                     thresholds = NULL,
+                                     polishing = list(minIons = 3)) {
   if (!inherits(x, "touchstone_results")) {
     stop("x must be a result returned by prepareCrosslinkResults().",
          call. = FALSE)
@@ -318,44 +327,19 @@ classifyCrosslinkResults <- function(x, thresholds = NULL, polishing = NULL) {
       call. = FALSE
     )
   }
-  if (is.null(thresholds)) {
-    thresholds <- x$thresholds
-    threshold.source <- x$settings$thresholdSource
-    if (is.null(threshold.source)) threshold.source <- "prepared-result"
-  } else {
-    threshold.source <- "manual"
-  }
-  thresholds <- validateCrosslinkThresholds(thresholds)
+  manual.thresholds <- !is.null(thresholds)
   polishing <- normalizePolishingOptions(polishing)
   classifier <- x$settings$classifier
   if (is.null(classifier)) classifier <- "SVM.score"
 
-  csms <- classifyDataset(
-    x$sourceCSMs,
-    threshold = thresholds,
-    classifier = classifier
-  )
-  if (!is.data.frame(csms)) {
-    stop("The supplied threshold could not be applied to the scored CSMs.",
-         call. = FALSE)
-  }
-
-  audit <- tibble::tibble(
-    rule = "threshold",
-    value = formatThresholdForAudit(thresholds),
-    before = nrow(x$sourceCSMs),
-    after = nrow(csms),
-    removed = nrow(x$sourceCSMs) - nrow(csms),
-    applied = TRUE,
-    reason = NA_character_
-  )
-  polished <- applyCrosslinkPolishing(csms, polishing)
+  polished <- applyCrosslinkPolishing(x$sourceCSMs, polishing)
   csms <- polished$data
-  audit <- dplyr::bind_rows(audit, polished$audit)
+  audit <- polished$audit
   if (nrow(csms) == 0) {
-    stop("No CSMs remain after thresholding and polishing.", call. = FALSE)
+    stop("No CSMs remain after polishing.", call. = FALSE)
   }
 
+  polishing.applied <- nrow(audit) > 0 && any(audit$applied)
   csms <- csms %>%
     dplyr::select(-dplyr::any_of(c(
       "numCSM", "numURP", "wtCSM", "wtURP", "CSMsupport", "URPsupport"
@@ -364,8 +348,73 @@ classifyCrosslinkResults <- function(x, thresholds = NULL, polishing = NULL) {
     dplyr::select(-dplyr::any_of(c(
       "wtCSM", "wtURP", "CSMsupport", "URPsupport"
     )))
-  summarized <- summarizeCrosslinkData(
+
+  threshold.data <- summarizeCrosslinkData(
     csms,
+    summarizationLevel = x$summarizationLevel,
+    classifier = classifier,
+    retainGroups = x$settings$retainGroups
+  ) %>%
+    dplyr::select(-dplyr::any_of(c(
+      "wtCSM", "wtURP", "CSMsupport", "URPsupport"
+    )))
+
+  if (manual.thresholds) {
+    thresholds <- validateCrosslinkThresholds(thresholds)
+    threshold.source <- "manual"
+  } else if (identical(x$settings$thresholdSource, "manual")) {
+    thresholds <- validateCrosslinkThresholds(x$thresholds)
+    threshold.source <- "manual"
+  } else if (polishing.applied) {
+    thresholds <- validateCrosslinkThresholds(findSeparateThresholdsModelled(
+      threshold.data,
+      targetER = x$settings$targetER,
+      scalingFactor = x$settings$scalingFactor,
+      plot = FALSE,
+      classifier = classifier
+    ))
+    threshold.source <- "polished-modelled"
+  } else {
+    thresholds <- validateCrosslinkThresholds(x$thresholds)
+    threshold.source <- x$settings$thresholdSource
+    if (is.null(threshold.source)) threshold.source <- "prepared-result"
+  }
+
+  classified.csms <- classifyDataset(
+    csms,
+    threshold = thresholds,
+    classifier = classifier
+  )
+  if (!is.data.frame(classified.csms)) {
+    stop("The supplied threshold could not be applied to the scored CSMs.",
+         call. = FALSE)
+  }
+  audit <- dplyr::bind_rows(
+    audit,
+    tibble::tibble(
+      rule = "threshold",
+      value = formatThresholdForAudit(thresholds),
+      before = nrow(csms),
+      after = nrow(classified.csms),
+      removed = nrow(csms) - nrow(classified.csms),
+      applied = TRUE,
+      reason = NA_character_
+    )
+  )
+  if (nrow(classified.csms) == 0) {
+    stop("No CSMs remain after polishing and thresholding.", call. = FALSE)
+  }
+
+  classified.csms <- classified.csms %>%
+    dplyr::select(-dplyr::any_of(c(
+      "numCSM", "numURP", "wtCSM", "wtURP", "CSMsupport", "URPsupport"
+    ))) %>%
+    calculatePairs(scalingFactor = x$settings$scalingFactor) %>%
+    dplyr::select(-dplyr::any_of(c(
+      "wtCSM", "wtURP", "CSMsupport", "URPsupport"
+    )))
+  summarized <- summarizeCrosslinkData(
+    classified.csms,
     summarizationLevel = x$summarizationLevel,
     classifier = classifier,
     retainGroups = x$settings$retainGroups
@@ -393,7 +442,6 @@ classifyCrosslinkResults <- function(x, thresholds = NULL, polishing = NULL) {
   result.settings <- x$settings
   result.settings$thresholdSource <- threshold.source
   result.settings$polishing <- polishing
-  polishing.applied <- nrow(audit) > 1 && any(audit$applied[-1])
 
   structure(
     list(
@@ -421,7 +469,7 @@ normalizePolishingOptions <- function(polishing) {
   }
   allowed <- c(
     "minPepLen", "minPepScore", "minScoreDiff", "minIons",
-    "minLadderCoverage"
+    "fallbackMinScoreDiff", "minLadderCoverage"
   )
   unknown <- setdiff(names(polishing), allowed)
   if (length(unknown) > 0) {
@@ -444,6 +492,14 @@ normalizePolishingOptions <- function(polishing) {
   if (!is.null(polishing$minLadderCoverage) &&
       polishing$minLadderCoverage > 1) {
     stop("minLadderCoverage must be between 0 and 1.", call. = FALSE)
+  }
+  if (!is.null(polishing$fallbackMinScoreDiff) &&
+      is.null(polishing$minIons)) {
+    stop(
+      "fallbackMinScoreDiff requires minIons because it is used only when ",
+      "product-ion evidence is unavailable.",
+      call. = FALSE
+    )
   }
   polishing
 }
@@ -533,15 +589,42 @@ applyCrosslinkPolishing <- function(datTab, polishing) {
       datTab, "minScoreDiff", polishing$minScoreDiff, columns, keep
     )
   }
+  ion.columns.available <- FALSE
   if (!is.null(polishing$minIons)) {
     columns <- c("numProdIons.1", "numProdIons.2")
-    keep <- if (all(columns %in% names(datTab))) {
+    ion.columns.available <- all(columns %in% names(datTab))
+    keep <- if (ion.columns.available) {
       datTab$numProdIons.1 >= polishing$minIons &
         datTab$numProdIons.2 >= polishing$minIons
     } else logical()
     datTab <- apply.if.available(
       datTab, "minIons", polishing$minIons, columns, keep
     )
+  }
+  if (!is.null(polishing$fallbackMinScoreDiff)) {
+    if (ion.columns.available) {
+      audit <- dplyr::bind_rows(
+        audit,
+        tibble::tibble(
+          rule = "fallbackMinScoreDiff",
+          value = format(polishing$fallbackMinScoreDiff),
+          before = nrow(datTab),
+          after = nrow(datTab),
+          removed = 0L,
+          applied = FALSE,
+          reason = "Product-ion evidence was available; fallback not needed"
+        )
+      )
+    } else {
+      columns <- "Score.Diff"
+      keep <- if (all(columns %in% names(datTab))) {
+        datTab$Score.Diff >= polishing$fallbackMinScoreDiff
+      } else logical()
+      datTab <- apply.if.available(
+        datTab, "fallbackMinScoreDiff",
+        polishing$fallbackMinScoreDiff, columns, keep
+      )
+    }
   }
   if (!is.null(polishing$minLadderCoverage)) {
     columns <- c("Len.Pep.1", "Len.Pep.2", "ladderLen.1", "ladderLen.2")

@@ -4,7 +4,7 @@
 \alias{classifyCrosslinkResults}
 \title{Classify and optionally polish prepared crosslink results}
 \usage{
-classifyCrosslinkResults(x, thresholds = NULL, polishing = NULL)
+classifyCrosslinkResults(x, thresholds = NULL, polishing = list(minIons = 3))
 }
 \arguments{
 \item{x}{A \code{touchstone_results} object returned by
@@ -14,9 +14,11 @@ classifyCrosslinkResults(x, thresholds = NULL, polishing = NULL)
 in \code{x} and accepts the same forms as the \code{thresholds} argument to
 \code{\link[=prepareCrosslinkResults]{prepareCrosslinkResults()}}.}
 
-\item{polishing}{\code{NULL} for no evidence polishing, or a named list containing
-any of \code{minPepLen}, \code{minPepScore}, \code{minScoreDiff}, \code{minIons}, and
-\code{minLadderCoverage}.}
+\item{polishing}{A named list containing any of \code{minPepLen}, \code{minPepScore},
+\code{minScoreDiff}, \code{minIons}, \code{fallbackMinScoreDiff}, and
+\code{minLadderCoverage}. The default is \code{list(minIons = 3)}. Use \code{NULL} for no
+evidence polishing. \code{fallbackMinScoreDiff} is considered only when
+\code{minIons} was requested but its product-ion columns are unavailable.}
 }
 \value{
 A \code{touchstone_results} object whose \code{data} contain classified and
@@ -25,21 +27,26 @@ CSM source is retained in \code{sourceCSMs}; \code{polishingAudit} reports wheth
 each rule was applied and the number of CSMs it removed.
 }
 \description{
-Applies a reporting threshold to the complete scored CSM source retained by
-\code{\link[=prepareCrosslinkResults]{prepareCrosslinkResults()}}, optionally applies transparent evidence filters,
-recalculates support counts with \code{\link[=calculatePairs]{calculatePairs()}}, and only then summarizes
-to the requested reporting level. This keeps \code{numCSM} and \code{numURP} aligned
-with the evidence that actually passes the reporting policy.
+Applies transparent evidence filters to the complete scored CSM source
+retained by \code{\link[=prepareCrosslinkResults]{prepareCrosslinkResults()}}, constructs the requested reporting
+level from the surviving CSMs, and estimates a new reporting threshold when
+polishing was applied. The threshold is then applied back to the polished
+CSMs before support counts are recalculated with \code{\link[=calculatePairs]{calculatePairs()}} and the
+final reporting table is constructed. This keeps \code{numCSM} and \code{numURP}
+aligned with the evidence that actually passes the reporting policy.
 }
 \details{
 Polishing is supplied as a named list. Its names intentionally follow
 \code{\link[=readProspectorXLOutput]{readProspectorXLOutput()}}: \code{minPepLen}, \code{minPepScore}, \code{minScoreDiff}, and
 \code{minIons}. The additional \code{minLadderCoverage} rule requires both peptides'
 sequential product-ion ladder lengths to be at least that fraction of their
-peptide lengths. Only explicitly supplied rules are considered. When the
-columns needed by a requested rule were not selected in the Search Compare
-output, that rule is skipped with a warning and recorded as unavailable in
-\code{polishingAudit}.
+peptide lengths. By default, each peptide must have at least three distinct
+backbone cleavage positions when product-ion annotations are available. Set
+\code{polishing = NULL} to disable that default. \code{fallbackMinScoreDiff} may be
+supplied with \code{minIons} to apply a Score.Diff cutoff only when the product-ion
+columns are unavailable. When the columns needed by a requested rule were not
+selected in the Search Compare output, that rule is skipped with a warning
+and recorded as unavailable in \code{polishingAudit}.
 }
 \examples{
 \dontrun{
