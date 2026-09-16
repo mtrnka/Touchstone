@@ -282,6 +282,47 @@ test_that("training records automatic complexity and selected features", {
   )
 })
 
+test_that("training stores compact candidates and materializes requested fits", {
+  input <- make_training_complexity_data(10)
+  score <- input$Score.Diff
+  diagnostics <- touchstone:::summarizeScoreBehavior(
+    transform(input, SVM.score = score)
+  )
+  compact <- list(
+    score = score,
+    scoreDiagnostics = diagnostics,
+    achievedFDR = 0.01,
+    thresh = list(intraThresh = 0, interThresh = Inf),
+    errorTable = tibble::tibble(
+      fdr.inter = 0, inter = 0,
+      fdr.intra = 0.01, intra = 10
+    ),
+    interInt = NaN,
+    interHits = 0,
+    intraHits = 10,
+    corScore = 100,
+    cost = 0.001,
+    gamma = NA_real_,
+    kernel = "linear",
+    params = "Score.Diff"
+  )
+
+  testthat::local_mocked_bindings(
+    tuneSVM = function(...) list(compact),
+    bestResPair = function(datTab, ...) datTab,
+    .package = "touchstone"
+  )
+
+  training <- trainCrosslinkScore(input, params = "Score.Diff")
+
+  expect_null(training$models[[1]]$CSMs)
+  expect_null(training$models[[1]]$URPs)
+  expect_identical(training$sourceCSMs, input)
+  expect_equal(training$recommended$CSMs$SVM.score, score)
+  resolved <- touchstone:::resolveCrosslinkFit(training, 1)
+  expect_equal(resolved$fit$CSMs$SVM.score, score)
+})
+
 test_that("score diagnostics report concise within-class rank correlations", {
   monotonic <- data.frame(
     SVM.score = seq_len(100),
@@ -480,6 +521,33 @@ test_that("large profile runs and records Score.Diff prefilter selection", {
   expect_identical(training$candidates$rowsBeforePrefilter, 501L)
   expect_identical(training$candidates$rowsAfterPrefilter, 100L)
   expect_identical(training$candidates$rowsScored, 501L)
+})
+
+test_that("fixed Score.Diff prefilter bypasses automatic selection", {
+  input <- make_training_complexity_data(100)
+  observed <- new.env(parent = emptyenv())
+
+  testthat::local_mocked_bindings(
+    chooseScoreDiffPrefilter = function(...) {
+      stop("automatic prefilter selection should not be called")
+    },
+    tuneSVM = function(datTab, params, trainingRows, ...) {
+      observed$trainingRows <- trainingRows
+      mock_tuning_result(datTab, params)
+    },
+    .package = "touchstone"
+  )
+
+  training <- trainCrosslinkScore(
+    input,
+    params = "Score.Diff",
+    scoreDiffPrefilter = 61
+  )
+
+  expect_identical(observed$trainingRows, input$Score.Diff >= 61)
+  expect_identical(training$prefilter$selectedScoreDiff, 61)
+  expect_identical(training$prefilter$assessment$reason, "fixed by the user")
+  expect_identical(training$settings$fixedScoreDiffPrefilter, 61)
 })
 
 test_that("prefilter assessment is independent of the feature profile", {

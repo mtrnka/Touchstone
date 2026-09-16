@@ -36,7 +36,8 @@
 #'   with [findSeparateThresholdsModelled()].
 #' @return A `touchstone_results` object containing the complete summarized
 #'   `data`, its complete scored CSM source, level-specific `thresholds`, the
-#'   resulting `fdr`, a compact `classificationSummary`, and the settings used.
+#'   resulting `fdr`, `fdrByClass` and `classificationSummary` tables stratified
+#'   by intra- and inter-protein class, and the settings used.
 #'   Use [classifyCrosslinkResults()] to generate a classified and optionally
 #'   polished reporting table with recalculated support counts.
 #' @examples
@@ -170,6 +171,10 @@ prepareCrosslinkResults <- function(x,
     classifier = classifier,
     scalingFactor = scalingFactor
   )
+  fdr.by.class <- classification.summary %>%
+    dplyr::select(dplyr::any_of(c(
+      "xlinkClass", "Target", "Decoy", "DoubleDecoy", "FDR"
+    )))
 
   structure(
     list(
@@ -177,6 +182,7 @@ prepareCrosslinkResults <- function(x,
       sourceCSMs = scored.csms,
       thresholds = thresholds,
       fdr = fdr,
+      fdrByClass = fdr.by.class,
       classificationSummary = classification.summary,
       summarizationLevel = summarizationLevel,
       stage = "prepared",
@@ -380,6 +386,10 @@ classifyCrosslinkResults <- function(x, thresholds = NULL, polishing = NULL) {
     classifier = classifier,
     scalingFactor = x$settings$scalingFactor
   )
+  fdr.by.class <- classification.summary %>%
+    dplyr::select(dplyr::any_of(c(
+      "xlinkClass", "Target", "Decoy", "DoubleDecoy", "FDR"
+    )))
   result.settings <- x$settings
   result.settings$thresholdSource <- threshold.source
   result.settings$polishing <- polishing
@@ -391,6 +401,7 @@ classifyCrosslinkResults <- function(x, thresholds = NULL, polishing = NULL) {
       sourceCSMs = x$sourceCSMs,
       thresholds = thresholds,
       fdr = fdr,
+      fdrByClass = fdr.by.class,
       classificationSummary = classification.summary,
       summarizationLevel = x$summarizationLevel,
       stage = if (polishing.applied) "polished" else "classified",
@@ -581,6 +592,13 @@ resolveCrosslinkFit <- function(x, model = "selected") {
     }
     index <- as.integer(model)
     fit <- x$models[[index]]
+    if (is.null(fit$CSMs)) {
+      fit <- materializeSVMFit(
+        fit,
+        x$sourceCSMs,
+        scoreName = x$settings$scoreName
+      )
+    }
     requested <- paste0("candidate-", index)
   } else {
     if (length(model) != 1 || !model %in% c("selected", "linear", "radial")) {

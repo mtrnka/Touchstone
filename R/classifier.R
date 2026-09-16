@@ -39,6 +39,10 @@
 #' @param sd_values Numeric vector of Score.Diff thresholds considered for the
 #'   SVM training subset. Rows below the selected value are excluded from model
 #'   fitting but remain in the scored results.
+#' @param scoreDiffPrefilter Optional fixed Score.Diff training threshold. When
+#'   supplied, it bypasses automatic prefilter selection. All input rows are
+#'   still scored. This is useful for prespecified analyses and validation
+#'   comparisons.
 #' @param recoveryFraction Minimum fraction of the best recovery within a kernel
 #'   family required for a credible candidate to remain under consideration.
 #'   Interprotein recovery is used when available; otherwise intraprotein
@@ -61,10 +65,11 @@
 #' @seealso [tuneSVM()], [tuneSVM.helper()], [buildSVM()]
 #' @returns A `touchstone_training` object containing the recommended linear
 #'   model, an optional recommended radial model, a self-contained candidate
-#'   audit table, fitted candidate models, prefilter information, and training
-#'   settings.
-#'   Scored CSMs, the URP evaluation table, and its thresholds are available
-#'   within each fitted model. Candidate diagnostics report Spearman
+#'   audit table, compact candidate scores and evaluation metadata, prefilter
+#'   information, and training settings. The source CSM table is stored once;
+#'   complete scored CSM and URP tables are materialized for recommended models
+#'   and reconstructed on demand for numbered alternate candidates. Candidate
+#'   diagnostics report Spearman
 #'   correlations between SVM.score and Score.Diff separately for target inter-
 #'   and intraprotein CSMs, both across the full score range and within the upper
 #'   half ranked by Score.Diff. A candidate's weakest available correlation must
@@ -81,6 +86,7 @@ trainCrosslinkScore <- function(datTab,
                                 cost_values = c(0.001, 0.01, 0.1, 1, 10),
                                 gamma_values = c(0.001, 0.01, 0.05, 0.1),
                                 sd_values = c(0,5,10,15,20),
+                                scoreDiffPrefilter = NULL,
                                 recoveryFraction = 0.9,
                                 minLinearCorrelation = 0.2,
                                 minRadialCorrelation = 0.5,
@@ -134,10 +140,35 @@ trainCrosslinkScore <- function(datTab,
   preFilter.summary <- NULL
   bestPreFilter <- NULL
   prefilter.assessment <- assessScoreDiffPrefilter(datTab)
-  prefilter.applied <- prefilter.assessment$eligible
+  fixed.prefilter <- !is.null(scoreDiffPrefilter)
+  if (fixed.prefilter) {
+    if (length(scoreDiffPrefilter) != 1 ||
+        !is.finite(scoreDiffPrefilter)) {
+      stop("scoreDiffPrefilter must be NULL or one finite number.",
+           call. = FALSE)
+    }
+    prefilter.assessment$eligible <- TRUE
+    prefilter.assessment$reason <- "fixed by the user"
+  }
+  prefilter.applied <- fixed.prefilter || prefilter.assessment$eligible
   training.rows <- rep(TRUE, nrow(datTab))
 
-  if (prefilter.applied) {
+  if (fixed.prefilter) {
+    bestPreFilter <- as.numeric(scoreDiffPrefilter)
+    training.rows <- !is.na(datTab$Score.Diff) &
+      datTab$Score.Diff >= bestPreFilter
+    if (!any(training.rows)) {
+      stop("scoreDiffPrefilter selected no training rows.", call. = FALSE)
+    }
+    preFilter.summary <- tibble::tibble(
+      sd.thresh = bestPreFilter,
+      n.total = sum(training.rows),
+      n.target = sum(datTab$Decoy2[training.rows] == "Target", na.rm = TRUE),
+      n.decoy = sum(datTab$Decoy2[training.rows] != "Target", na.rm = TRUE),
+      selected = TRUE,
+      source = "fixed"
+    )
+  } else if (prefilter.applied) {
     prefilter <- chooseScoreDiffPrefilter(
       datTab = datTab,
       sd_values = sd_values,
@@ -177,11 +208,14 @@ trainCrosslinkScore <- function(datTab,
                    seed = seed,
                    splitBy = splitBy,
                    trainingRows = training.rows,
+                   compact = TRUE,
                    verbose = verbose)
   tuned.parse <- tuned %>%
     purrr::imap_dfr(function(x,i) {
       fdr.columns <- c(scoreName, "Decoy", "xlinkClass")
-      achieved.fdr <- if (is.data.frame(x$URPs) &&
+      achieved.fdr <- if (!is.null(x$achievedFDR)) {
+        as_scalar_numeric(x$achievedFDR)
+      } else if (is.data.frame(x$URPs) &&
                           all(fdr.columns %in% names(x$URPs))) {
         tryCatch(
           as_scalar_numeric(calculateFDR(
@@ -198,7 +232,11 @@ trainCrosslinkScore <- function(datTab,
       thresholds <- candidateThresholds(x$thresh)
       inter.hits <- as_scalar_numeric(x$interHits, default = 0)
       intra.hits <- as_scalar_numeric(x$intraHits, default = 0)
-      diagnostics <- summarizeScoreBehavior(x$CSMs, scoreName = scoreName)
+      diagnostics <- if (!is.null(x$scoreDiagnostics)) {
+        x$scoreDiagnostics
+      } else {
+        summarizeScoreBehavior(x$CSMs, scoreName = scoreName)
+      }
       dplyr::bind_cols(tibble::tibble(
         "index" = i,
         "kernel" = x$kernel,
@@ -285,20 +323,22 @@ trainCrosslinkScore <- function(datTab,
   recommended.index <- selection$recommended
   recommended.radial.index <- selection$recommendedRadial
 
+  materialize <- function(index) {
+    if (is.na(index)) return(NULL)
+    materializeSVMFit(tuned[[index]], datTab, scoreName = scoreName)
+  }
+
   if (verbose) {
     print(tuned.parse)
   }
 
   structure(
     list(
-      recommended = if (is.na(recommended.index)) NULL else tuned[[recommended.index]],
-      recommendedRadial = if (is.na(recommended.radial.index)) {
-        NULL
-      } else {
-        tuned[[recommended.radial.index]]
-      },
+      recommended = materialize(recommended.index),
+      recommendedRadial = materialize(recommended.radial.index),
       candidates = tuned.parse,
       models = tuned,
+      sourceCSMs = datTab,
       prefilter = list(
         applied = prefilter.applied,
         selectedScoreDiff = bestPreFilter,
@@ -321,6 +361,11 @@ trainCrosslinkScore <- function(datTab,
         costValues = cost_values,
         gammaValues = gamma_values,
         scoreDiffValues = sd_values,
+        fixedScoreDiffPrefilter = if (fixed.prefilter) {
+          bestPreFilter
+        } else {
+          NULL
+        },
         scoreDiffPrefilterTrainingOnly = TRUE,
         seed = seed,
         splitBy = splitBy,
@@ -1228,6 +1273,7 @@ chooseScoreDiffPrefilter <- function(datTab,
           kernel = kernel,
           seed = seed,
           splitBy = splitBy,
+          compact = TRUE,
           verbose = verbose
         )
       },
@@ -1366,6 +1412,9 @@ chooseScoreDiffPrefilter <- function(datTab,
 #' @param trainingRows Optional logical vector selecting rows eligible for SVM
 #'   fitting. Every row in `datTab` is still scored.
 #' @param verbose Print training diagnostics.
+#' @param compact Retain candidate scores and audit information without
+#'   duplicating the complete CSM and URP tables. Used by
+#'   [trainCrosslinkScore()] to reduce memory use during tuning.
 #' @seealso [trainCrosslinkScore()], [tuneSVM.helper()], [buildSVM()]
 #' @returns A list containing all of the SVM models at different cost and gamma values.
 #' @export
@@ -1381,6 +1430,7 @@ tuneSVM <- function(datTab,
                     seed = 1,
                     splitBy = NULL,
                     trainingRows = NULL,
+                    compact = FALSE,
                     verbose = FALSE) {
   param_grid <- makeSVMParameterGrid(
     cost_values = cost_values,
@@ -1399,6 +1449,7 @@ tuneSVM <- function(datTab,
                    seed = seed,
                    splitBy = splitBy,
                    trainingRows = trainingRows,
+                   compact = compact,
                    verbose = verbose)
   })
   return(tuned)
@@ -1456,6 +1507,8 @@ makeSVMParameterGrid <- function(cost_values,
 #' @param trainingRows Optional logical vector selecting rows eligible for SVM
 #'   fitting. Every row in `datTab` is still scored.
 #' @param verbose Print training diagnostics.
+#' @param compact Return a memory-efficient candidate containing its score
+#'   vector and audit data instead of complete duplicated CSM and URP tables.
 #' @seealso [trainCrosslinkScore()], [tuneSVM()], [buildSVM()]
 #' @returns A list containing the trained data at CSM and URP levels, score thresholds
 #' for the targetER, the error table and some other information used for tuning.
@@ -1472,6 +1525,7 @@ tuneSVM.helper <- function(datTab,
                            seed = 1,
                            splitBy = NULL,
                            trainingRows = NULL,
+                           compact = FALSE,
                            verbose = FALSE) {
   kernel <- match.arg(kernel, c("linear", "radial"))
   if (kernel == "radial" &&
@@ -1542,8 +1596,22 @@ tuneSVM.helper <- function(datTab,
     NA_real_
   }
 
+  achieved.fdr <- tryCatch(
+    as_scalar_numeric(calculateFDR(
+      datTab.urp,
+      threshold = datTab.urp.thresh,
+      classifier = scoreName,
+      scalingFactor = scalingFactor
+    )),
+    error = function(e) NA_real_
+  )
+  score.diagnostics <- summarizeScoreBehavior(
+    datTab.csm,
+    scoreName = scoreName
+  )
+
   normalized.training.rows <- normalizeTrainingRows(trainingRows, nrow(datTab))
-  list("CSMs" = datTab.csm,
+  result <- list("CSMs" = datTab.csm,
        "URPs" = datTab.urp,
        "thresh" = datTab.urp.thresh,
        "intraHits" = intraHits,
@@ -1554,10 +1622,35 @@ tuneSVM.helper <- function(datTab,
        "cost" = cost,
        "gamma" = gamma,
        "kernel" = kernel,
+       "achievedFDR" = achieved.fdr,
+       "scoreDiagnostics" = score.diagnostics,
        "sd.thresh" = min(datTab$Score.Diff[normalized.training.rows]),
        "trainingRowCount" = sum(normalized.training.rows),
        "scoredRowCount" = nrow(datTab),
        "params" = params)
+  if (isTRUE(compact)) {
+    result$score <- datTab.csm[[scoreName]]
+    result$CSMs <- NULL
+    result$URPs <- NULL
+  }
+  result
+}
+
+materializeSVMFit <- function(fit, datTab, scoreName = "SVM.score") {
+  if (!is.null(fit$CSMs)) return(fit)
+  if (is.null(fit$score) || length(fit$score) != nrow(datTab)) {
+    stop(
+      "The compact candidate cannot be reconstructed from the source CSMs.",
+      call. = FALSE
+    )
+  }
+  fit$CSMs <- datTab
+  fit$CSMs[[scoreName]] <- fit$score
+  fit$URPs <- do.call(
+    bestResPair,
+    list(datTab = fit$CSMs, classifier = scoreName)
+  )
+  fit
 }
 
 #' Basic function to build a new SVM classifier.  Doesn't do any feature selection or

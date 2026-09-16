@@ -11,6 +11,10 @@ MS2 scoring workflow on the full Astral dataset, and report that analysis.
 The ribosome example and GitHub README will then be completed before work begins
 on MS3 reconstruction or the other deferred extensions.
 
+Unless an analysis explicitly states otherwise, diagnostics, thresholds, FDR
+summaries, and reported counts must keep intra-protein and inter-protein results
+separate at every summarization level.
+
 ## 1. Stabilize the binary-crosslink workflow
 
 - [x] Repair package loading, dependency declarations, and generated
@@ -31,16 +35,14 @@ on MS3 reconstruction or the other deferred extensions.
 - [x] Add explicit training and result objects, model-selection diagnostics,
   score-correlation plots, and reproducible decoy downsampling while retaining
   direct access to all fitted candidates.
-- [ ] Explicitly evaluate a small set of prefilters, including `Score.Diff` and
-  minimum product-ion evidence, using validation data rather than choosing the
-  setting with the largest apparent yield. Score.Diff prefilter selection is
-  is evaluated whenever there are enough target and decoy CSMs for comparison,
-  independently of the feature-complexity profile. It limits model fitting
-  without removing lower-Score.Diff CSMs from subsequent scoring. Product-ion
-  evidence remains a reporting-polish option rather than a training prefilter.
-  The legacy low-FDR interprotein summary (`interInt`) is retained internally
-  for this prefilter choice pending validation on the original E. coli data,
-  but is no longer exposed in the hyperparameter candidate audit.
+- [x] Implement and evaluate training-only `Score.Diff` prefiltering separately
+  from feature-complexity selection. The prefilter limits model fitting without
+  removing lower-Score.Diff CSMs from subsequent scoring. Product-ion evidence
+  remains a reporting-polish option rather than a general training prefilter.
+  A fixed-threshold override supports reproducible validation and comparison
+  with historical analyses. The legacy low-FDR interprotein summary
+  (`interInt`) remains internal to automatic prefilter selection and is not
+  exposed in the hyperparameter candidate audit.
 - [x] Make a linear SVM the default model. When explicitly requested, radial
   candidates receive a separate recommendation while the overall default
   remains linear until independent validation shows a reproducible benefit.
@@ -71,16 +73,34 @@ on MS3 reconstruction or the other deferred extensions.
   interface stable. The initial local harness is
   `scratch/touchstoneComplexityTest.R`; this item remains open until its dataset
   suite and repeated-seed comparisons have been reviewed.
-- [ ] Re-test the training-only Score.Diff prefilter on the large E. coli data
-  used to develop the original procedure. Confirm that the automatic choice can
-  recover the historically useful 15--20 training thresholds and that scoring
-  the complete input recovers credible lower-Score.Diff CSMs without degrading
-  FDR or manual quality.
+- [x] Re-test the training-only Score.Diff prefilter on the large E. coli data
+  used to develop the original procedure. Fixed linear models at Score.Diff
+  thresholds 0, 5, 10, 15, and 20 were scored against the complete input, with
+  the historical minimum-four-product-ions-per-peptide rule applied before
+  independent 2% CSM and protein-pair thresholds. Thresholds 5--20 produced a
+  stable plateau. The automatic value of 10 recovered 10,437 normal-target
+  inter-protein CSMs, 136 normal decoys, 310 total entrapment hits, and 342
+  inter-protein PPIs, closely matching the historical 10,706/137/266 and about
+  366 PPI result. Lower-Score.Diff CSM recovery was retained and reported.
 - [x] Replace the self-inclusive, hard-thresholded `wtCSM` and `wtURP` training
   features with `CSMsupport` and `URPsupport`. The default complexity profiles
   now use self-excluded corroborating evidence with a bounded soft contribution.
   The legacy features remain available for compatibility and comparison but are
   omitted from the new automatic profiles and classified reporting tables.
+- [ ] Perform a bounded E. coli PPI adequacy audit before changing the scoring
+  architecture. Using the current accession-pair definitions, tabulate every
+  candidate inter-protein PPI with its SVM score/FDR band, CSM and URP support,
+  decoy/entrapment status, historical Touchstone and Kojak classification,
+  co-fractionation evidence, and STRING score. Evaluate two separate questions:
+  whether 2% PPI FDR is calibrated by entrapment, and whether orthogonal support
+  declines sensibly below the Touchstone threshold. Treat co-fractionation and
+  STRING as validation evidence, not training features.
+- [ ] Use the PPI audit as a decision gate. Retain one CSM-level SVM score with
+  independent CSM, URP, and PPI thresholds if its PPI ranking is adequate. If
+  ranking is inadequate, first test a transparent linear PPI aggregation score
+  based on the strongest and additional independent URPs. Do not introduce
+  separate SVMs at every summarization level or a Bayesian model without
+  evidence that the simpler design fails.
 
 ## 2. Analyze and present the stable MS2 workflow
 
@@ -118,6 +138,14 @@ on MS3 reconstruction or the other deferred extensions.
   both constituent proteins have intra-protein crosslink support. This likely
   belongs in `calculatePairs()` as evidence annotation, not as an immediate
   reporting filter.
+- [ ] Revisit a dedicated PPI results format only after the bounded PPI audit.
+  A future format may separate one-row-per-PPI summaries from URP/CSM evidence
+  mappings, but the current best-row representation remains sufficient for the
+  stabilization analysis.
+- [ ] Defer Bayesian evidence integration, linear-peptide priors, and formal
+  protein inference. In particular, do not attempt to resolve overlapping but
+  non-identical accession sets until the stable CSM/URP workflow and the need
+  for a separate PPI score have been established.
 - [ ] Decide whether to remove or clearly quarantine the deprecated
   `trainClassifier()` workflow and unused parallel (`furrr`/`future`) paths.
 - [ ] Add continuous package checks and decide how to handle the large bundled

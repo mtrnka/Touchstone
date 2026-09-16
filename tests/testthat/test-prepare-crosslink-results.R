@@ -83,6 +83,10 @@ test_that("prepared URP results reuse training output and classify it", {
   expect_identical(observed$fdr.threshold, result$thresholds)
   expect_identical(observed$fdr.scalingFactor, 5)
   expect_identical(result$fdr, 0.012)
+  expect_identical(
+    result$fdrByClass,
+    tibble::tibble(xlinkClass = "interProtein", Target = 1, FDR = 0)
+  )
   expect_identical(result$summarizationLevel, "urp")
   expect_identical(result$model$kernel, "linear")
   expect_false(any(c("classified", "reported") %in% names(result)))

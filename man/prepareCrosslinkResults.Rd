@@ -48,7 +48,8 @@ with \code{\link[=findSeparateThresholdsModelled]{findSeparateThresholdsModelled
 \value{
 A \code{touchstone_results} object containing the complete summarized
 \code{data}, its complete scored CSM source, level-specific \code{thresholds}, the
-resulting \code{fdr}, a compact \code{classificationSummary}, and the settings used.
+resulting \code{fdr}, \code{fdrByClass} and \code{classificationSummary} tables stratified
+by intra- and inter-protein class, and the settings used.
 Use \code{\link[=classifyCrosslinkResults]{classifyCrosslinkResults()}} to generate a classified and optionally
 polished reporting table with recalculated support counts.
 }

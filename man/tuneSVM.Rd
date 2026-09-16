@@ -18,6 +18,7 @@ tuneSVM(
   seed = 1,
   splitBy = NULL,
   trainingRows = NULL,
+  compact = FALSE,
   verbose = FALSE
 )
 }
@@ -50,6 +51,10 @@ during cross-fitting.}
 
 \item{trainingRows}{Optional logical vector selecting rows eligible for SVM
 fitting. Every row in \code{datTab} is still scored.}
+
+\item{compact}{Retain candidate scores and audit information without
+duplicating the complete CSM and URP tables. Used by
+\code{\link[=trainCrosslinkScore]{trainCrosslinkScore()}} to reduce memory use during tuning.}
 
 \item{verbose}{Print training diagnostics.}
 }

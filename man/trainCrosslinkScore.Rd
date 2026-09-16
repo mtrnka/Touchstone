@@ -16,6 +16,7 @@ trainCrosslinkScore(
   cost_values = c(0.001, 0.01, 0.1, 1, 10),
   gamma_values = c(0.001, 0.01, 0.05, 0.1),
   sd_values = c(0, 5, 10, 15, 20),
+  scoreDiffPrefilter = NULL,
   recoveryFraction = 0.9,
   minLinearCorrelation = 0.2,
   minRadialCorrelation = 0.5,
@@ -61,6 +62,11 @@ kernels are explicitly requested.}
 SVM training subset. Rows below the selected value are excluded from model
 fitting but remain in the scored results.}
 
+\item{scoreDiffPrefilter}{Optional fixed Score.Diff training threshold. When
+supplied, it bypasses automatic prefilter selection. All input rows are
+still scored. This is useful for prespecified analyses and validation
+comparisons.}
+
 \item{recoveryFraction}{Minimum fraction of the best recovery within a kernel
 family required for a credible candidate to remain under consideration.
 Interprotein recovery is used when available; otherwise intraprotein
@@ -90,10 +96,11 @@ spectrum identifier, and finally individual rows.}
 \value{
 A \code{touchstone_training} object containing the recommended linear
 model, an optional recommended radial model, a self-contained candidate
-audit table, fitted candidate models, prefilter information, and training
-settings.
-Scored CSMs, the URP evaluation table, and its thresholds are available
-within each fitted model. Candidate diagnostics report Spearman
+audit table, compact candidate scores and evaluation metadata, prefilter
+information, and training settings. The source CSM table is stored once;
+complete scored CSM and URP tables are materialized for recommended models
+and reconstructed on demand for numbered alternate candidates. Candidate
+diagnostics report Spearman
 correlations between SVM.score and Score.Diff separately for target inter-
 and intraprotein CSMs, both across the full score range and within the upper
 half ranked by Score.Diff. A candidate's weakest available correlation must

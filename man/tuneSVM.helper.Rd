@@ -20,6 +20,7 @@ tuneSVM.helper(
   seed = 1,
   splitBy = NULL,
   trainingRows = NULL,
+  compact = FALSE,
   verbose = FALSE
 )
 }
@@ -51,6 +52,9 @@ during cross-fitting.}
 
 \item{trainingRows}{Optional logical vector selecting rows eligible for SVM
 fitting. Every row in \code{datTab} is still scored.}
+
+\item{compact}{Return a memory-efficient candidate containing its score
+vector and audit data instead of complete duplicated CSM and URP tables.}
 
 \item{verbose}{Print training diagnostics.}
 }
