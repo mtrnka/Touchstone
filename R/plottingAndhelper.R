@@ -1033,12 +1033,37 @@ moduleTilePlot <- function(datTab, threshold=-100, title="Module Plot", modBorde
 #' CLMS results, but this will only work for the most common research organisms.
 #' Otherwise the user should provide the ncbiTaxonomy code:
 #' `https://string-db.org/` under the `Oraganisms` link.
+#'
+#' Protein pairs must first be defined with [calculatePairs()]. Each unique
+#' target inter-protein pair is queried once; its score is then joined back to
+#' every corresponding input row. Unmapped accessions and pairs without a
+#' STRING interaction receive `NA` rather than stopping the analysis.
 #' @param datTab Parsed CLMS search results.
 #' @param ncbiTaxonomyCode NCBI format species code used by string-db
 #' @returns A data frame
 #' @export
 getStringScores <- function(datTab, ncbiTaxonomyCode = NULL) {
+  required <- c("Acc.1", "Acc.2", "xlinkClass", "Decoy", "xlinkedProtPair")
+  missing <- setdiff(required, names(datTab))
+  if (length(missing) > 0) {
+    stop(
+      "getStringScores() requires column(s): ",
+      paste(missing, collapse = ", "),
+      ". Run calculatePairs() before querying STRING.",
+      call. = FALSE
+    )
+  }
   if (is.null(ncbiTaxonomyCode)) {
+    auto.required <- c("Score.Diff", "Species.1")
+    auto.missing <- setdiff(auto.required, names(datTab))
+    if (length(auto.missing) > 0) {
+      stop(
+        "Automatic organism detection requires column(s): ",
+        paste(auto.missing, collapse = ", "),
+        ". Supply ncbiTaxonomyCode explicitly.",
+        call. = FALSE
+      )
+    }
     primarySpecies <- datTab %>%
       removeDecoys() %>%
       filter(.data$Score.Diff > 5) %>%
@@ -1046,56 +1071,123 @@ getStringScores <- function(datTab, ncbiTaxonomyCode = NULL) {
       arrange(desc(.data$n)) %>%
       slice(1) %>%
       pull(.data$Species.1)
-    tryCatch({
-      if (is.null(ncbiTaxonomyCode)) {
-        ncbiTaxonomyCode <- case_when(
-          primarySpecies == "HUMAN" ~ 9606,
-          primarySpecies == "MOUSE" ~ 10090,
-          primarySpecies == "RAT" ~ 10116,
-          primarySpecies == "ECOLI" ~ 511145,
-          primarySpecies == "YEAST" ~ 4932,
-          primarySpecies == "DROME" ~ 7227,
-          primarySpecies == "ARATH" ~ 3702)
-      }
-      message(stringr::str_c("detected organism: ", primarySpecies, "\tncbi code:", ncbiTaxonomyCode))
-    },
-    error = function(cond) {
-      message("Unknown species, please provide the ncbi taxonomy identifier")
-      message("Original error message:")
-      message(conditionMessage(cond))
-      NA
-    })
-  }
-  string_db <- STRINGdb::STRINGdb$new(version = "12.0", network_type="full", link_data="combined_only",
-                                      species = ncbiTaxonomyCode, score_threshold = 0, input_directory = "")
-  datTab.inter <- datTab %>%
-    filter(.data$xlinkClass == "interProtein")
-  datTab.intra <- datTab %>%
-    filter(.data$xlinkClass == "intraProtein")
-  p.list.1 <- datTab.inter %>%
-    removeDecoys() %>%
-    pull(.data$Acc.1) %>%
-    as.character()
-  p.list.2 <- datTab.inter %>%
-    removeDecoys() %>%
-    pull(.data$Acc.2) %>%
-    as.character()
-  p.list <- unique(c(p.list.1, p.list.2))
-  id.map <- string_db$map(data.frame(acc = p.list), "acc", removeUnmappedRows = F)
-  datTab.intra$string.score <- NA
-  datTab.inter <- datTab.inter %>%
-    mutate(string.score = purrr::map2_dbl(.data$Acc.1, .data$Acc.2, function(x, y) {
-      String.1 <- id.map %>% filter(.data$acc == x) %>% pull(.data$STRING_id)
-      String.2 <- id.map %>% filter(.data$acc == y) %>% pull(.data$STRING_id)
-      ppi <- string_db$get_interactions(c(String.1, String.2))
-      if (length(ppi$combined_score)==0) {
-        return(NA)
-      } else {
-        return(ppi$combined_score[[1]])
-      }
-    })
+    species.codes <- c(
+      HUMAN = 9606, MOUSE = 10090, RAT = 10116, ECOLI = 511145,
+      YEAST = 4932, DROME = 7227, ARATH = 3702
     )
-  return(bind_rows(datTab.intra, datTab.inter))
+    ncbiTaxonomyCode <- unname(species.codes[primarySpecies])
+    if (length(ncbiTaxonomyCode) != 1 || is.na(ncbiTaxonomyCode)) {
+      stop(
+        "Unknown primary species '", primarySpecies,
+        "'. Supply ncbiTaxonomyCode explicitly.",
+        call. = FALSE
+      )
+    }
+    message(
+      stringr::str_c(
+        "detected organism: ", primarySpecies,
+        "\tncbi code:", ncbiTaxonomyCode
+      )
+    )
+  }
+  string_db <- STRINGdb::STRINGdb$new(
+    version = "12.0",
+    network_type = "full",
+    link_data = "combined_only",
+    species = ncbiTaxonomyCode,
+    score_threshold = 0,
+    input_directory = ""
+  )
+  .getStringScoresWithDB(datTab, string_db)
+}
+
+.getStringScoresWithDB <- function(datTab, string_db) {
+  datTab$string.score <- NULL
+  target.inter <- datTab %>%
+    filter(.data$xlinkClass == "interProtein", .data$Decoy == "Target")
+  proteins <- unique(c(
+    as.character(target.inter$Acc.1),
+    as.character(target.inter$Acc.2)
+  ))
+  proteins <- proteins[!is.na(proteins) & nzchar(proteins)]
+
+  if (length(proteins) == 0) {
+    datTab$string.score <- NA_real_
+    return(datTab)
+  }
+
+  id.map <- string_db$map(
+    data.frame(acc = proteins),
+    "acc",
+    removeUnmappedRows = FALSE
+  )
+  if (!all(c("acc", "STRING_id") %in% names(id.map))) {
+    stop("STRING mapping did not return acc and STRING_id columns.", call. = FALSE)
+  }
+  first.mapped <- function(x) {
+    x <- as.character(x)
+    x <- x[!is.na(x) & nzchar(x)]
+    if (length(x) == 0) NA_character_ else x[[1]]
+  }
+  id.lookup <- id.map %>%
+    group_by(.data$acc) %>%
+    summarize(STRING_id = first.mapped(.data$STRING_id), .groups = "drop")
+
+  pair.lookup <- target.inter %>%
+    dplyr::transmute(
+      .stringPair = as.character(.data$xlinkedProtPair),
+      Acc.1 = as.character(.data$Acc.1),
+      Acc.2 = as.character(.data$Acc.2)
+    ) %>%
+    dplyr::distinct(.data$.stringPair, .keep_all = TRUE) %>%
+    left_join(
+      rename(id.lookup, Acc.1 = "acc", STRING.1 = "STRING_id"),
+      by = "Acc.1"
+    ) %>%
+    left_join(
+      rename(id.lookup, Acc.2 = "acc", STRING.2 = "STRING_id"),
+      by = "Acc.2"
+    )
+
+  interaction.score <- function(string.1, string.2) {
+    if (is.na(string.1) || is.na(string.2)) return(NA_real_)
+    interactions <- tryCatch(
+      string_db$get_interactions(unique(c(string.1, string.2))),
+      error = function(e) NULL
+    )
+    if (is.null(interactions) ||
+        !("combined_score" %in% names(interactions)) ||
+        nrow(interactions) == 0) {
+      return(NA_real_)
+    }
+    if (all(c("from", "to") %in% names(interactions))) {
+      interactions <- interactions %>%
+        filter(
+          (.data$from == string.1 & .data$to == string.2) |
+            (.data$from == string.2 & .data$to == string.1)
+        )
+    }
+    scores <- as.numeric(interactions$combined_score)
+    scores <- scores[is.finite(scores)]
+    if (length(scores) == 0) NA_real_ else max(scores)
+  }
+
+  pair.scores <- pair.lookup %>%
+    mutate(
+      string.score = purrr::map2_dbl(
+        .data$STRING.1, .data$STRING.2, interaction.score
+      )
+    ) %>%
+    select(".stringPair", "string.score")
+
+  datTab %>%
+    mutate(
+      .stringPair = as.character(.data$xlinkedProtPair),
+      .stringRowOrder = dplyr::row_number()
+    ) %>%
+    left_join(pair.scores, by = ".stringPair") %>%
+    arrange(.data$.stringRowOrder) %>%
+    select(-c(".stringPair", ".stringRowOrder"))
 }
 
 #' Convenience function for working through the ribosome example dataset.
