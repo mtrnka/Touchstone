@@ -38,7 +38,9 @@
 #'   `data`, its complete scored CSM source, level-specific `thresholds`, the
 #'   resulting `fdr`, exact scaling-adjusted `fdrByClass`, downsampled
 #'   `classificationSummary` counts stratified by intra- and inter-protein
-#'   class, and the settings used. FDR values are proportions, not percentages.
+#'   class, and the settings used. Settings record the threshold method and
+#'   whether the target FDR was reached for each class when that information is
+#'   available. FDR values are proportions, not percentages.
 #'   Use [classifyCrosslinkResults()] to generate a classified and optionally
 #'   polished reporting table with recalculated support counts.
 #' @examples
@@ -142,19 +144,33 @@ prepareCrosslinkResults <- function(x,
     )
 
   threshold.source <- if (!is.null(thresholds)) "manual" else "modelled"
-  thresholds <- if (!is.null(thresholds)) {
-    validateCrosslinkThresholds(thresholds)
+  raw.thresholds <- if (!is.null(thresholds)) {
+    thresholds
   } else if (use.cached.thresholds) {
     threshold.source <- "training-cache"
-    validateCrosslinkThresholds(resolved$fit$thresh)
+    resolved$fit$thresh
   } else {
-    validateCrosslinkThresholds(findSeparateThresholdsModelled(
+    findSeparateThresholdsModelled(
       summarized,
       targetER = targetER,
       scalingFactor = scalingFactor,
       plot = FALSE,
       classifier = classifier
-    ))
+    )
+  }
+  threshold.methods <- attr(raw.thresholds, "thresholdMethods")
+  threshold.target.reached <- attr(raw.thresholds, "targetFDRReached")
+  thresholds <- validateCrosslinkThresholds(raw.thresholds)
+  if (is.null(threshold.methods)) {
+    default.method <- if (identical(threshold.source, "manual")) {
+      "manual"
+    } else {
+      "not-recorded"
+    }
+    threshold.methods <- c(
+      intraProtein = default.method,
+      interProtein = default.method
+    )
   }
 
   classification.summary <- countDecoys(
@@ -196,6 +212,8 @@ prepareCrosslinkResults <- function(x,
         retainGroups = retainGroups,
         classifier = classifier,
         thresholdSource = threshold.source,
+        thresholdMethods = threshold.methods,
+        targetFDRReached = threshold.target.reached,
         polishing = NULL
       )
     ),
@@ -408,6 +426,21 @@ classifyCrosslinkResults <- function(x,
     threshold.source <- x$settings$thresholdSource
     if (is.null(threshold.source)) threshold.source <- "prepared-result"
   }
+  threshold.methods <- attr(thresholds, "thresholdMethods")
+  threshold.target.reached <- attr(thresholds, "targetFDRReached")
+  if (is.null(threshold.methods)) {
+    threshold.methods <- x$settings$thresholdMethods
+  }
+  if (is.null(threshold.target.reached)) {
+    threshold.target.reached <- x$settings$targetFDRReached
+  }
+  if (manual.thresholds || identical(threshold.source, "manual")) {
+    threshold.methods <- c(
+      intraProtein = "manual",
+      interProtein = "manual"
+    )
+    threshold.target.reached <- NULL
+  }
 
   classified.csms <- classifyDataset(
     csms,
@@ -472,6 +505,8 @@ classifyCrosslinkResults <- function(x,
   )
   result.settings <- x$settings
   result.settings$thresholdSource <- threshold.source
+  result.settings$thresholdMethods <- threshold.methods
+  result.settings$targetFDRReached <- threshold.target.reached
   result.settings$polishing <- polishing
 
   structure(

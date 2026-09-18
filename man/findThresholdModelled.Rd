@@ -27,7 +27,10 @@ findThresholdModelled(
 \item{classifier}{Column name in \code{datTab} used as the classifier to rank hits.}
 }
 \value{
-A list with the threshold and calculated FDR at this threshold
+A list with the threshold, calculated FDR, method used to obtain the
+FDR curve, and whether the requested FDR was reached. Logistic smoothing
+is preferred; a conservative monotonic empirical curve is used if the fit
+is not identifiable.
 }
 \description{
 \code{findThreshold()} uses calculated values at each threshold. Differs from

@@ -27,7 +27,8 @@ findSeparateThresholdsModelled(
 \item{classifier}{Column name in \code{datTab} used as the classifier to rank hits.}
 }
 \value{
-A list of inter and intra-protein thresholds to give the desired error rate.
+A list of inter- and intra-protein thresholds. Attributes record the
+method used and whether the requested FDR was reached for each class.
 }
 \description{
 \code{findSeparateThresholds()} uses calculated values at each threshold. Differs from

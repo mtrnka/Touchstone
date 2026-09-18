@@ -50,7 +50,9 @@ A \code{touchstone_results} object containing the complete summarized
 \code{data}, its complete scored CSM source, level-specific \code{thresholds}, the
 resulting \code{fdr}, exact scaling-adjusted \code{fdrByClass}, downsampled
 \code{classificationSummary} counts stratified by intra- and inter-protein
-class, and the settings used. FDR values are proportions, not percentages.
+class, and the settings used. Settings record the threshold method and
+whether the target FDR was reached for each class when that information is
+available. FDR values are proportions, not percentages.
 Use \code{\link[=classifyCrosslinkResults]{classifyCrosslinkResults()}} to generate a classified and optionally
 polished reporting table with recalculated support counts.
 }

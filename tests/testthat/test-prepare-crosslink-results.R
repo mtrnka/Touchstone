@@ -160,7 +160,16 @@ test_that("prepared results use existing summarization and threshold functions",
       observed$scalingFactor <- scalingFactor
       observed$plot <- plot
       observed$classifier <- classifier
-      list(interThresh = 2.5, intraThresh = 1.5)
+      thresholds <- list(interThresh = 2.5, intraThresh = 1.5)
+      attr(thresholds, "thresholdMethods") <- c(
+        intraProtein = "empirical",
+        interProtein = "monotonic-empirical-fallback"
+      )
+      attr(thresholds, "targetFDRReached") <- c(
+        intraProtein = TRUE,
+        interProtein = TRUE
+      )
+      thresholds
     },
     countDecoys = function(datTab, threshold, scalingFactor, ...) {
       observed$classified.data <- datTab
@@ -185,6 +194,17 @@ test_that("prepared results use existing summarization and threshold functions",
   expect_identical(observed$count.scalingFactor, 5)
   expect_identical(observed$classifier, "SVM.score")
   expect_false(observed$plot)
+  expect_identical(
+    result$settings$thresholdMethods,
+    c(
+      intraProtein = "empirical",
+      interProtein = "monotonic-empirical-fallback"
+    )
+  )
+  expect_identical(
+    result$settings$targetFDRReached,
+    c(intraProtein = TRUE, interProtein = TRUE)
+  )
 })
 
 test_that("prepared results can use the recommended radial fit", {

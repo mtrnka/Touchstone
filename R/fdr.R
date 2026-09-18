@@ -203,22 +203,11 @@ generateDecoyTable <- function(datTab,
   decTable.problems <- decTable.problems[which(decTable.problems > first0)]
   decTable[decTable.problems, "fdr.exp"] <- medFDR.post
   firstGuess <- which.min(abs(decTable$fdr.exp[1:first0] - targetER))
-  decTable <- decTable %>%
-    mutate(fdr.weights = case_when(
-      abs(.data$fdr.exp - targetER)/maxFDR < 0.1 ~ 10000,
-      abs(.data$fdr.exp - targetER)/maxFDR < 0.25 ~ 1,
-      abs(.data$fdr.exp - targetER)/maxFDR < 0.5 ~ .1,
-      TRUE ~ 0.5))
-  decTable.tailfit <- minpack.lm::nlsLM(fdr.exp ~ I(maxFDR/ (1 + exp(A*(decTable$thresh - C)))),
-                                        data=decTable,
-                                        start=list(A=1, C = 0),
-                                        weights=decTable$fdr.weights,
-                                        control=list(maxiter=100))
-  decTable <- decTable %>%
-    mutate(
-      fdr = maxFDR /
-        (1 + exp(stats::coef(decTable.tailfit)["A"] * (decTable$thresh - stats::coef(decTable.tailfit)["C"]))),
-    )
+  fdr.model <- modelFDRCurve(decTable, maxFDR, targetER)
+  decTable$fdr.weights <- fdr.model$weights
+  decTable$fdr <- fdr.model$fdr
+  attr(decTable, "thresholdMethod") <- fdr.model$method
+  attr(decTable, "thresholdMessage") <- fdr.model$message
   decTable.plot <- decTable %>%
     ggplot(aes(x=.data$thresh)) +
     geom_line(aes(y=.data$fdr.orig), color="green", linewidth=1.5) +
@@ -229,6 +218,72 @@ generateDecoyTable <- function(datTab,
     geom_hline(yintercept = targetER, color="red", linetype="dashed")
   if (plot) {suppressWarnings(plot(decTable.plot))}
   return(decTable)
+}
+
+# Fit the historical logistic FDR curve, with a conservative empirical
+# fallback for sparse or otherwise non-identifiable data.
+modelFDRCurve <- function(decTable, maxFDR, targetER) {
+  scaleFDR <- if (is.finite(maxFDR) && maxFDR > 0) maxFDR else 1
+  weights <- dplyr::case_when(
+    abs(decTable$fdr.exp - targetER) / scaleFDR < 0.1 ~ 10000,
+    abs(decTable$fdr.exp - targetER) / scaleFDR < 0.25 ~ 1,
+    abs(decTable$fdr.exp - targetER) / scaleFDR < 0.5 ~ 0.1,
+    TRUE ~ 0.5
+  )
+
+  fit <- tryCatch(
+    {
+      if (!is.finite(maxFDR) || maxFDR <= 0 ||
+          length(unique(decTable$fdr.exp[is.finite(decTable$fdr.exp)])) < 2) {
+        stop("insufficient FDR variation for logistic fitting")
+      }
+      minpack.lm::nlsLM(
+        fdr.exp ~ I(maxFDR / (1 + exp(A * (thresh - C)))),
+        data = decTable,
+        start = list(A = 1, C = 0),
+        weights = weights,
+        lower = c(A = .Machine$double.eps, C = -Inf),
+        upper = c(A = Inf, C = Inf),
+        control = list(maxiter = 100)
+      )
+    },
+    error = function(error) error
+  )
+
+  if (!inherits(fit, "error")) {
+    coefficients <- stats::coef(fit)
+    fittedFDR <- maxFDR /
+      (1 + exp(coefficients[["A"]] * (decTable$thresh - coefficients[["C"]])))
+    valid.fit <- all(is.finite(coefficients)) && coefficients[["A"]] > 0 &&
+      all(is.finite(fittedFDR)) && all(diff(fittedFDR) <= 0)
+    if (valid.fit) {
+      return(list(
+        fdr = fittedFDR,
+        weights = weights,
+        method = "logistic-model",
+        message = NA_character_
+      ))
+    }
+    fit <- simpleError("logistic fit was non-finite or non-decreasing")
+  }
+
+  empiricalFDR <- decTable$fdr.orig
+  finite.empirical <- empiricalFDR[is.finite(empiricalFDR)]
+  missing.replacement <- if (length(finite.empirical) == 0) {
+    0
+  } else {
+    max(finite.empirical)
+  }
+  empiricalFDR[!is.finite(empiricalFDR)] <- missing.replacement
+  empiricalFDR <- pmax(empiricalFDR, 0)
+  monotonicFDR <- rev(cummax(rev(empiricalFDR)))
+
+  list(
+    fdr = monotonicFDR,
+    weights = weights,
+    method = "monotonic-empirical-fallback",
+    message = conditionMessage(fit)
+  )
 }
 
 #' Calculates number of interProtein and intraProtein hits above a single threshold.
@@ -296,7 +351,10 @@ generateErrorTable <- function(datTab,
 #' @param scalingFactor An integer k. The multiple by which decoy DB is larger than target DB.
 #' @param ... Additional params passed by calling function.
 #' @param classifier Column name in `datTab` used as the classifier to rank hits.
-#' @return A list with the threshold and calculated FDR at this threshold
+#' @return A list with the threshold, calculated FDR, method used to obtain the
+#'   FDR curve, and whether the requested FDR was reached. Logistic smoothing
+#'   is preferred; a conservative monotonic empirical curve is used if the fit
+#'   is not identifiable.
 #' @seealso [findThreshold()], [findSeparateThresholds()]
 #' @export
 #'
@@ -311,10 +369,46 @@ findThresholdModelled <- function(datTab, targetER=0.01, minThreshold=-5,
     classifier = classifier,
     ...
   )
-  nearestScore <- which.min(abs(num.hits$fdr - targetER))
+  method <- attr(num.hits, "thresholdMethod")
+  if (is.null(method)) method <- "logistic-model"
+  target.reached <- any(is.finite(num.hits$fdr) & num.hits$fdr <= targetER)
+  if (identical(method, "monotonic-empirical-fallback") && target.reached) {
+    nearestScore <- which(is.finite(num.hits$fdr) &
+                            num.hits$fdr <= targetER)[[1]]
+    rlang::warn(
+      "Logistic FDR smoothing failed.",
+      body = paste0(
+        "Using the conservative monotonic empirical FDR curve. Reason: ",
+        attr(num.hits, "thresholdMessage")
+      ),
+      .frequency = "once",
+      .frequency_id = "touchstone-fdr-logistic-fallback"
+    )
+  } else {
+    nearestScore <- which.min(abs(num.hits$fdr - targetER))
+    if (identical(method, "monotonic-empirical-fallback")) {
+      rlang::warn(
+        paste0(
+          "Logistic FDR smoothing failed and the empirical curve did not ",
+          "reach the requested FDR."
+        ),
+        body = paste0(
+          "Using the closest available threshold. Reason: ",
+          attr(num.hits, "thresholdMessage")
+        ),
+        .frequency = "once",
+        .frequency_id = "touchstone-fdr-logistic-no-target"
+      )
+    }
+  }
   threshold = num.hits$thresh[nearestScore]
   modelledFDR = num.hits$fdr[nearestScore]
-  return(list("globalThresh"=threshold, "correspondingFDR" = modelledFDR))
+  return(list(
+    "globalThresh" = threshold,
+    "correspondingFDR" = modelledFDR,
+    "method" = method,
+    "targetFDRReached" = target.reached
+  ))
 }
 
 #' Determine SVM.score threshold to give desired FDR
@@ -406,7 +500,8 @@ findSeparateThresholds <- function(datTab, targetER=0.01, minThreshold=-5,
 #' @param scalingFactor k, multiple by which which decoy DB is larger than target DB
 #' @param plot Show decoy table plot?
 #' @param classifier Column name in `datTab` used as the classifier to rank hits.
-#' @return A list of inter and intra-protein thresholds to give the desired error rate.
+#' @return A list of inter- and intra-protein thresholds. Attributes record the
+#'   method used and whether the requested FDR was reached for each class.
 #' @seealso [findThreshold()], [findThresholdModelled()], [findSeparateThresholds()]
 #' @export
 #'
@@ -419,26 +514,57 @@ findSeparateThresholdsModelled <- function(datTab, targetER=0.01, minThreshold=-
     filter(.data$xlinkClass=="interProtein")
   intraTab <- datTab %>%
     filter(.data$xlinkClass=="intraProtein")
-  interThresh <- if (nrow(interTab) == 0) {
-    Inf
+  inter.result <- if (nrow(interTab) == 0) {
+    list(
+      globalThresh = Inf,
+      correspondingFDR = NA_real_,
+      method = "not-applicable",
+      targetFDRReached = NA
+    )
   } else {
     findThresholdModelled(
       interTab, targetER, minThreshold,
       scalingFactor = scalingFactor,
       plot = plot,
       classifier = classifier
-    )[[1]]
+    )
   }
-  intraThresh <- if (nrow(intraTab) == 0) {
-    Inf
+  intra.result <- if (nrow(intraTab) == 0) {
+    list(
+      globalThresh = Inf,
+      correspondingFDR = NA_real_,
+      method = "not-applicable",
+      targetFDRReached = NA
+    )
   } else {
-    findThreshold(
+    result <- findThreshold(
       intraTab, targetER, minThreshold,
       classifier = classifier,
       scalingFactor = scalingFactor
-    )[[1]]
+    )
+    result$method <- "empirical"
+    corresponding.fdr <- result$correspondingFDR
+    result$targetFDRReached <- length(corresponding.fdr) == 1 &&
+      is.finite(corresponding.fdr) && corresponding.fdr <= targetER
+    result
   }
-  return(list("intraThresh"=intraThresh, "interThresh"=interThresh))
+  if (is.null(inter.result$method)) inter.result$method <- "logistic-model"
+  if (is.null(inter.result$targetFDRReached)) {
+    inter.result$targetFDRReached <- NA
+  }
+  thresholds <- list(
+    "intraThresh" = intra.result$globalThresh,
+    "interThresh" = inter.result$globalThresh
+  )
+  attr(thresholds, "thresholdMethods") <- c(
+    intraProtein = intra.result$method,
+    interProtein = inter.result$method
+  )
+  attr(thresholds, "targetFDRReached") <- c(
+    intraProtein = intra.result$targetFDRReached,
+    interProtein = inter.result$targetFDRReached
+  )
+  return(thresholds)
 }
 
 #' Classify CLMS datasets

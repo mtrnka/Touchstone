@@ -234,3 +234,104 @@ test_that("separate modelled thresholds tolerate an absent crosslink class", {
   expect_identical(thresholds$intraThresh, 1)
   expect_identical(thresholds$interThresh, Inf)
 })
+
+test_that("logistic FDR modelling is constrained to a decreasing curve", {
+  decoy.table <- tibble::tibble(
+    thresh = seq(-4, 4, length.out = 100),
+    fdr.exp = 0.2 / (1 + exp(1.25 * (thresh - 0.5)))
+  )
+  decoy.table$fdr.orig <- decoy.table$fdr.exp
+
+  result <- touchstone:::modelFDRCurve(
+    decoy.table,
+    maxFDR = 0.2,
+    targetER = 0.01
+  )
+
+  expect_identical(result$method, "logistic-model")
+  expect_true(all(is.finite(result$fdr)))
+  expect_true(all(diff(result$fdr) <= 0))
+})
+
+test_that("flat FDR data use a conservative monotonic empirical fallback", {
+  decoy.table <- tibble::tibble(
+    thresh = 1:5,
+    fdr.exp = rep(0.1, 5),
+    fdr.orig = c(0.2, 0.1, 0.15, -0.1, 0.02)
+  )
+
+  result <- touchstone:::modelFDRCurve(
+    decoy.table,
+    maxFDR = 0.2,
+    targetER = 0.01
+  )
+
+  expect_identical(result$method, "monotonic-empirical-fallback")
+  expect_equal(result$fdr, c(0.2, 0.15, 0.15, 0.02, 0.02))
+  expect_true(all(result$fdr >= 0))
+  expect_true(all(diff(result$fdr) <= 0))
+})
+
+test_that("modelled threshold records conservative fallback diagnostics", {
+  decoy.table <- tibble::tibble(
+    thresh = 1:4,
+    fdr = c(0.2, 0.05, 0.01, 0.005)
+  )
+  attr(decoy.table, "thresholdMethod") <-
+    "monotonic-empirical-fallback"
+  attr(decoy.table, "thresholdMessage") <- "test fit failure"
+
+  testthat::local_mocked_bindings(
+    generateDecoyTable = function(...) decoy.table,
+    .package = "touchstone"
+  )
+
+  expect_warning(
+    result <- findThresholdModelled(
+      data.frame(SVM.score = 1:4), targetER = 0.01
+    ),
+    "conservative monotonic empirical"
+  )
+
+  expect_identical(result$globalThresh, 3L)
+  expect_identical(result$method, "monotonic-empirical-fallback")
+  expect_true(result$targetFDRReached)
+})
+
+test_that("separate modelled thresholds retain per-class methods", {
+  scored <- data.frame(
+    xlinkClass = c("interProtein", "intraProtein"),
+    SVM.score = c(1, 1)
+  )
+
+  testthat::local_mocked_bindings(
+    findThresholdModelled = function(...) {
+      list(
+        globalThresh = 2,
+        correspondingFDR = 0.01,
+        method = "monotonic-empirical-fallback",
+        targetFDRReached = TRUE
+      )
+    },
+    findThreshold = function(...) {
+      list(globalThresh = 1, correspondingFDR = 0.005)
+    },
+    .package = "touchstone"
+  )
+
+  thresholds <- findSeparateThresholdsModelled(scored, plot = FALSE)
+
+  expect_equal(thresholds, list(intraThresh = 1, interThresh = 2),
+               ignore_attr = TRUE)
+  expect_identical(
+    attr(thresholds, "thresholdMethods"),
+    c(
+      intraProtein = "empirical",
+      interProtein = "monotonic-empirical-fallback"
+    )
+  )
+  expect_identical(
+    attr(thresholds, "targetFDRReached"),
+    c(intraProtein = TRUE, interProtein = TRUE)
+  )
+})
