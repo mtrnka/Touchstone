@@ -58,6 +58,11 @@
 #'   Each requested kernel family receives its own recommendation, while the
 #'   overall recommendation prefers an eligible linear candidate.
 #' @param seed Integer seed used to make cross-fitting reproducible.
+#' @param ensembleRepeats Number of cross-fitted score estimates to average for
+#'   each recommended model. Hyperparameter tuning and Score.Diff prefilter
+#'   selection are performed once. Additional repeats refit only the selected
+#'   model specification, using consecutive seeds beginning with `seed`.
+#'   Defaults to 3; use 1 for the previous single-fit behavior.
 #' @param splitBy Character vector naming columns whose rows must remain together
 #'   during cross-fitting. The default uses residue pairs when available, then a
 #'   spectrum identifier, and finally individual rows.
@@ -92,9 +97,23 @@ trainCrosslinkScore <- function(datTab,
                                 minRadialCorrelation = 0.5,
                                 kernels = "linear",
                                 seed = 1,
+                                ensembleRepeats = 3,
                                 splitBy = NULL,
                                 verbose = FALSE) {
   datTab <- dplyr::ungroup(datTab)
+
+  if (length(ensembleRepeats) != 1 || !is.finite(ensembleRepeats) ||
+      ensembleRepeats < 1 || ensembleRepeats != as.integer(ensembleRepeats)) {
+    stop("ensembleRepeats must be one positive integer.", call. = FALSE)
+  }
+  ensembleRepeats <- as.integer(ensembleRepeats)
+  if (ensembleRepeats > 1 &&
+      (length(seed) != 1 || !is.finite(seed) || seed != as.integer(seed))) {
+    stop(
+      "seed must be one finite integer when ensembleRepeats is greater than 1.",
+      call. = FALSE
+    )
+  }
 
   if (length(scalingFactor) != 1 || !is.finite(scalingFactor) ||
       scalingFactor <= 0) {
@@ -325,7 +344,20 @@ trainCrosslinkScore <- function(datTab,
 
   materialize <- function(index) {
     if (is.na(index)) return(NULL)
-    materializeSVMFit(tuned[[index]], datTab, scoreName = scoreName)
+    ensembleRecommendedSVMFit(
+      fit = tuned[[index]],
+      datTab = datTab,
+      params = params,
+      scoreName = scoreName,
+      scalingFactor = scalingFactor,
+      targetER = targetER,
+      sampleNo = sampleNo,
+      seed = seed,
+      ensembleRepeats = ensembleRepeats,
+      splitBy = splitBy,
+      trainingRows = training.rows,
+      verbose = verbose
+    )
   }
 
   if (verbose) {
@@ -368,6 +400,12 @@ trainCrosslinkScore <- function(datTab,
         },
         scoreDiffPrefilterTrainingOnly = TRUE,
         seed = seed,
+        ensembleRepeats = ensembleRepeats,
+        ensembleSeeds = if (ensembleRepeats == 1) {
+          seed
+        } else {
+          seed + seq.int(0L, ensembleRepeats - 1L)
+        },
         splitBy = splitBy,
         features = params,
         featureSource = feature.source,
@@ -413,6 +451,14 @@ print.touchstone_training <- function(x, ...) {
   if (!is.null(x$settings$features)) {
     cat("Features: ", paste(x$settings$features, collapse = ", "), ".\n",
         sep = "")
+  }
+  if (!is.null(x$settings$ensembleRepeats)) {
+    cat(
+      "Recommended scores average ", x$settings$ensembleRepeats,
+      " cross-fitted estimate",
+      if (x$settings$ensembleRepeats == 1) ".\n" else "s.\n",
+      sep = ""
+    )
   }
   if (isTRUE(x$prefilter$applied)) {
     cat(
@@ -1649,6 +1695,151 @@ materializeSVMFit <- function(fit, datTab, scoreName = "SVM.score") {
   fit$URPs <- do.call(
     bestResPair,
     list(datTab = fit$CSMs, classifier = scoreName)
+  )
+  fit
+}
+
+ensembleRecommendedSVMFit <- function(fit,
+                                      datTab,
+                                      params,
+                                      scoreName,
+                                      scalingFactor,
+                                      targetER,
+                                      sampleNo,
+                                      seed,
+                                      ensembleRepeats,
+                                      splitBy,
+                                      trainingRows,
+                                      verbose = FALSE) {
+  ensembleRepeats <- as.integer(ensembleRepeats)
+  fit <- materializeSVMFit(fit, datTab, scoreName = scoreName)
+  seeds <- if (ensembleRepeats == 1) {
+    seed
+  } else {
+    seed + seq.int(0L, ensembleRepeats - 1L)
+  }
+  fit$ensemble <- list(
+    repeats = ensembleRepeats,
+    seeds = seeds,
+    aggregation = "mean"
+  )
+  if (ensembleRepeats == 1) return(fit)
+
+  score.repeats <- vector("list", ensembleRepeats)
+  score.repeats[[1]] <- fit$CSMs[[scoreName]]
+  svm.args <- list(
+    datTab = datTab,
+    params = params,
+    scoreName = scoreName,
+    sampleNo = sampleNo,
+    showTab = FALSE,
+    splitBy = splitBy,
+    trainingRows = trainingRows,
+    verbose = verbose,
+    cost = fit$cost,
+    kernel = fit$kernel
+  )
+  if (identical(fit$kernel, "radial")) svm.args$gamma <- fit$gamma
+
+  for (i in seq.int(2L, ensembleRepeats)) {
+    svm.args$seed <- seeds[[i]]
+    scored <- do.call(buildSVM, svm.args)
+    score.repeats[[i]] <- scored[[scoreName]]
+  }
+  score.matrix <- do.call(cbind, score.repeats)
+  averaged.score <- rowMeans(score.matrix, na.rm = TRUE)
+  if (any(!is.finite(averaged.score))) {
+    stop("Ensemble scoring produced a non-finite averaged score.",
+         call. = FALSE)
+  }
+
+  scored.csms <- datTab
+  scored.csms[[scoreName]] <- averaged.score
+  scored.urps <- do.call(
+    bestResPair,
+    list(datTab = scored.csms, classifier = scoreName)
+  )
+  thresholds <- findSeparateThresholdsModelled(
+    scored.urps,
+    targetER = targetER,
+    scalingFactor = scalingFactor,
+    plot = FALSE,
+    classifier = scoreName
+  )
+  classified <- classifyDataset(
+    scored.urps,
+    thresholds,
+    classifier = scoreName
+  ) %>%
+    removeDecoys() %>%
+    dplyr::count(.data$xlinkClass)
+  class.hits <- function(pattern) {
+    value <- classified %>%
+      dplyr::filter(grepl(pattern, as.character(.data$xlinkClass))) %>%
+      dplyr::summarise(n = sum(.data$n)) %>%
+      dplyr::pull(.data$n)
+    if (length(value) == 0 || is.na(value)) 0 else value
+  }
+  error.table <- generateErrorTable.sep(
+    scored.urps,
+    classifier = scoreName,
+    scalingFactor = scalingFactor
+  )
+  inter.integral <- error.table %>%
+    dplyr::filter(dplyr::between(.data$fdr.inter, 0.01, 0.05)) %>%
+    dplyr::summarise(value = mean(.data$inter)) %>%
+    dplyr::pull(.data$value)
+
+  fit$CSMs <- scored.csms
+  fit$URPs <- scored.urps
+  fit$score <- averaged.score
+  fit$thresh <- thresholds
+  fit$interHits <- class.hits("^interProtein")
+  fit$intraHits <- class.hits("^intraProtein")
+  fit$errorTable <- error.table
+  fit$interInt <- if (length(inter.integral) == 0) NaN else inter.integral
+  fit$achievedFDR <- tryCatch(
+    as_scalar_numeric(calculateFDR(
+      scored.urps,
+      threshold = thresholds,
+      classifier = scoreName,
+      scalingFactor = scalingFactor
+    )),
+    error = function(e) NA_real_
+  )
+  fit$scoreDiagnostics <- summarizeScoreBehavior(
+    scored.csms,
+    scoreName = scoreName
+  )
+  top.inter.csms <- scored.csms %>%
+    dplyr::filter(
+      .data$Decoy == "Target",
+      grepl("^interProtein", as.character(.data$xlinkClass))
+    ) %>%
+    dplyr::arrange(dplyr::desc(.data$Score.Diff))
+  top.inter.csms <- dplyr::slice_head(
+    top.inter.csms,
+    n = floor(nrow(top.inter.csms) / 2)
+  )
+  fit$corScore <- if (nrow(top.inter.csms) >= 2) {
+    100 * stats::cor(
+      top.inter.csms$Score.Diff,
+      top.inter.csms[[scoreName]],
+      method = "spearman"
+    )
+  } else {
+    NA_real_
+  }
+  fit$ensemble$repeatDiagnostics <- purrr::map_dfr(
+    seq_along(score.repeats),
+    function(i) {
+      repeat.csms <- datTab
+      repeat.csms[[scoreName]] <- score.repeats[[i]]
+      dplyr::bind_cols(
+        tibble::tibble(seed = seeds[[i]]),
+        summarizeScoreBehavior(repeat.csms, scoreName = scoreName)
+      )
+    }
   )
   fit
 }

@@ -236,7 +236,7 @@ test_that("training records automatic complexity and selected features", {
     .package = "touchstone"
   )
 
-  training <- trainCrosslinkScore(input)
+  training <- trainCrosslinkScore(input, ensembleRepeats = 1)
 
   expect_identical(training$settings$complexity$selected, "small")
   expect_identical(training$settings$complexity$proteinCount, 10L)
@@ -313,7 +313,9 @@ test_that("training stores compact candidates and materializes requested fits", 
     .package = "touchstone"
   )
 
-  training <- trainCrosslinkScore(input, params = "Score.Diff")
+  training <- trainCrosslinkScore(
+    input, params = "Score.Diff", ensembleRepeats = 1
+  )
 
   expect_null(training$models[[1]]$CSMs)
   expect_null(training$models[[1]]$URPs)
@@ -321,6 +323,74 @@ test_that("training stores compact candidates and materializes requested fits", 
   expect_equal(training$recommended$CSMs$SVM.score, score)
   resolved <- touchstone:::resolveCrosslinkFit(training, 1)
   expect_equal(resolved$fit$CSMs$SVM.score, score)
+})
+
+test_that("recommended models average repeated fits without repeating tuning", {
+  input <- make_training_complexity_data(10)
+  input$xlinkedResPair <- paste0("pair", seq_len(nrow(input)))
+  fit <- mock_tuning_result(input, "Score.Diff")[[1]]
+  fit$CSMs$SVM.score <- 1
+  observed <- new.env(parent = emptyenv())
+  observed$seeds <- integer()
+  observed$trainingRows <- list()
+
+  testthat::local_mocked_bindings(
+    buildSVM = function(datTab, seed, trainingRows, ...) {
+      observed$seeds <- c(observed$seeds, seed)
+      observed$trainingRows[[length(observed$trainingRows) + 1L]] <- trainingRows
+      datTab$SVM.score <- seed
+      datTab
+    },
+    bestResPair = function(datTab, ...) datTab,
+    findSeparateThresholdsModelled = function(...) {
+      list(intraThresh = 0, interThresh = 0)
+    },
+    classifyDataset = function(datTab, ...) datTab,
+    removeDecoys = function(datTab, ...) datTab,
+    generateErrorTable.sep = function(...) {
+      tibble::tibble(fdr.inter = 0.01, inter = 0)
+    },
+    calculateFDR = function(...) 0.01,
+    .package = "touchstone"
+  )
+
+  result <- touchstone:::ensembleRecommendedSVMFit(
+    fit = fit,
+    datTab = input,
+    params = "Score.Diff",
+    scoreName = "SVM.score",
+    scalingFactor = 1,
+    targetER = 0.01,
+    sampleNo = 100,
+    seed = 1,
+    ensembleRepeats = 3,
+    splitBy = "xlinkedResPair",
+    trainingRows = input$Score.Diff >= 15
+  )
+
+  expect_identical(observed$seeds, c(2, 3))
+  expect_true(all(vapply(
+    observed$trainingRows,
+    identical,
+    logical(1),
+    input$Score.Diff >= 15
+  )))
+  expect_equal(result$CSMs$SVM.score, rep(2, nrow(input)))
+  expect_identical(result$ensemble$repeats, 3L)
+  expect_identical(result$ensemble$seeds, c(1, 2, 3))
+  expect_identical(result$ensemble$aggregation, "mean")
+  expect_identical(result$ensemble$repeatDiagnostics$seed, c(1, 2, 3))
+})
+
+test_that("three recommended-model repeats are the default", {
+  expect_identical(formals(trainCrosslinkScore)$ensembleRepeats, 3)
+  expect_error(
+    trainCrosslinkScore(
+      make_training_complexity_data(10),
+      ensembleRepeats = 0
+    ),
+    "positive integer"
+  )
 })
 
 test_that("score diagnostics report concise within-class rank correlations", {
@@ -422,7 +492,9 @@ test_that("poor within-class correlation is excluded before recovery ranking", {
     .package = "touchstone"
   )
 
-  training <- trainCrosslinkScore(input, params = "Score.Diff")
+  training <- trainCrosslinkScore(
+    input, params = "Score.Diff", ensembleRepeats = 1
+  )
 
   expect_false(training$candidates$eligible[1])
   expect_identical(training$candidates$bestRecoveryHits, c(100, 100))
@@ -471,7 +543,8 @@ test_that("radial candidates must meet the stronger correlation minimum", {
   training <- trainCrosslinkScore(
     input,
     params = "Score.Diff",
-    kernels = c("linear", "radial")
+    kernels = c("linear", "radial"),
+    ensembleRepeats = 1
   )
 
   expect_gt(training$candidates$worstClassCorrelation[1], 0.2)
@@ -503,7 +576,7 @@ test_that("large profile runs and records Score.Diff prefilter selection", {
     .package = "touchstone"
   )
 
-  training <- trainCrosslinkScore(input)
+  training <- trainCrosslinkScore(input, ensembleRepeats = 1)
 
   expect_true(observed$prefilter.called)
   expect_identical(training$settings$complexity$selected, "large")
@@ -541,7 +614,8 @@ test_that("fixed Score.Diff prefilter bypasses automatic selection", {
   training <- trainCrosslinkScore(
     input,
     params = "Score.Diff",
-    scoreDiffPrefilter = 61
+    scoreDiffPrefilter = 61,
+    ensembleRepeats = 1
   )
 
   expect_identical(observed$trainingRows, input$Score.Diff >= 61)
@@ -571,7 +645,7 @@ test_that("prefilter assessment is independent of the feature profile", {
     .package = "touchstone"
   )
 
-  training <- trainCrosslinkScore(input)
+  training <- trainCrosslinkScore(input, ensembleRepeats = 1)
 
   expect_identical(training$settings$complexity$selected, "medium")
   expect_true(observed$called)
@@ -599,7 +673,9 @@ test_that("explicit params override complexity feature selection", {
     .package = "touchstone"
   )
 
-  training <- trainCrosslinkScore(input, params = requested.params)
+  training <- trainCrosslinkScore(
+    input, params = requested.params, ensembleRepeats = 1
+  )
 
   expect_identical(observed$params, requested.params)
   expect_identical(training$settings$featureSource, "user")

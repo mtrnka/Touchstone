@@ -22,6 +22,7 @@ trainCrosslinkScore(
   minRadialCorrelation = 0.5,
   kernels = "linear",
   seed = 1,
+  ensembleRepeats = 3,
   splitBy = NULL,
   verbose = FALSE
 )
@@ -86,6 +87,12 @@ Each requested kernel family receives its own recommendation, while the
 overall recommendation prefers an eligible linear candidate.}
 
 \item{seed}{Integer seed used to make cross-fitting reproducible.}
+
+\item{ensembleRepeats}{Number of cross-fitted score estimates to average for
+each recommended model. Hyperparameter tuning and Score.Diff prefilter
+selection are performed once. Additional repeats refit only the selected
+model specification, using consecutive seeds beginning with \code{seed}.
+Defaults to 3; use 1 for the previous single-fit behavior.}
 
 \item{splitBy}{Character vector naming columns whose rows must remain together
 during cross-fitting. The default uses residue pairs when available, then a
