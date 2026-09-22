@@ -3,8 +3,8 @@
 .Rdata
 .httr-oauth
 .DS_Store
+Rplots.pdf
 .quarto
 scratch/
 scratch/ribosome_vignette.R
-
 

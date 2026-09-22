@@ -8,11 +8,11 @@ tables with enough provenance to understand how each result was produced.
 
 The core binary-crosslink MS2 workflow is now substantially stabilized and has
 been exercised on TRiC, translocon HCD/EThcD, large E. coli, and Astral data.
-The full Astral peptide-pair analysis and report have been delivered. The next
-release priority is therefore the working ribosome example and GitHub README,
-followed by a clean-install test and stable public MS2 tag. PPI-specific
-scoring, MS3 reconstruction, and deeper Prospector integration remain important
-but are not blockers for that release.
+The full Astral peptide-pair analysis and report have been delivered, and the
+working ribosome example and GitHub README are complete. The remaining release
+priority is therefore a clean-install test, complete package check, and stable
+public MS2 tag. PPI-specific scoring, MS3 reconstruction, and deeper Prospector
+integration remain important but are not blockers for that release.
 
 Unless an analysis explicitly states otherwise, diagnostics, thresholds, FDR
 summaries, and reported counts must keep intra-protein and inter-protein results
@@ -133,10 +133,10 @@ separate at every summarization level.
   convincingly than DSBSO in the current Prospector workflow; the 500-peak
   searches likely suffered from Prospector's unmatched-peak penalty and do not
   resolve optimal Astral scoring parameters.
-- [ ] Rebuild the ribosome example as a concise, reproducible end-to-end
+- [x] Rebuild the ribosome example as a concise, reproducible end-to-end
   demonstration of input, training, model inspection, result preparation,
   classification, polishing, and reporting.
-- [ ] Rewrite the GitHub README around the working ribosome example, with clear
+- [x] Rewrite the GitHub README around the working ribosome example, with clear
   installation instructions, expected outputs, and links to more detailed
   documentation where appropriate.
 - [ ] Run the README example from a clean R session and fresh package install,

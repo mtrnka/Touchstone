@@ -1,6 +1,6 @@
 Package: touchstone
 Title: Rescoring and Classification of Protein Prospector CLMS Data
-Version: 0.0.0.9000
+Version: 0.1.0
 Authors@R: 
     person("Mike", "Trnka", , "mtrnka@cgl.ucsf.edu", role = c("aut", "cre"),
            comment = c(ORCID = "0000-0002-8808-5146"))
