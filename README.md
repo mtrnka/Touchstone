@@ -494,8 +494,7 @@ readr::write_csv(xiview_table, "ribosome_xiview.csv")
 <img src="man/figures/README-xinet-example.png" alt="xiNet network view of classified rabbit ribosome crosslinks" width="100%" />
 
 The xiNet network view summarizes protein connectivity across the
-classified ribosome URPs. Node size reflects the number of associated
-crosslinks.
+classified ribosome URPs.
 
 After structural annotation, Touchstone can write a [UCSF
 ChimeraX](https://www.cgl.ucsf.edu/chimerax/) pseudobond file. Links at
