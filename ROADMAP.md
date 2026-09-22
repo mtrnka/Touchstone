@@ -6,10 +6,13 @@ data model will remain a flat data frame. More complicated internal structures
 may be used where helpful, but package functions should return canonical flat
 tables with enough provenance to understand how each result was produced.
 
-The current release priority is to complete section 1, evaluate the finalized
-MS2 scoring workflow on the full Astral dataset, and report that analysis.
-The ribosome example and GitHub README will then be completed before work begins
-on MS3 reconstruction or the other deferred extensions.
+The core binary-crosslink MS2 workflow is now substantially stabilized and has
+been exercised on TRiC, translocon HCD/EThcD, large E. coli, and Astral data.
+The full Astral peptide-pair analysis and report have been delivered. The next
+release priority is therefore the working ribosome example and GitHub README,
+followed by a clean-install test and stable public MS2 tag. PPI-specific
+scoring, MS3 reconstruction, and deeper Prospector integration remain important
+but are not blockers for that release.
 
 Unless an analysis explicitly states otherwise, diagnostics, thresholds, FDR
 summaries, and reported counts must keep intra-protein and inter-protein results
@@ -45,85 +48,91 @@ separate at every summarization level.
   exposed in the hyperparameter candidate audit.
 - [x] Make a linear SVM the default model. When explicitly requested, radial
   candidates receive a separate recommendation while the overall default
-  remains linear until independent validation shows a reproducible benefit.
-- [ ] Complete the candidate audit. The candidate table now records each
-  model's filters, features, parameters, validation FDR/yield, relative
-  recovery within its kernel family, concise intra- and interprotein rank
-  correlations over both the full range and high-Score.Diff tail, eligibility,
-  recommendation status, and selection or rejection reason. Models with a
-  weakest correlation below the kernel-specific minimum (0.2 for linear and
-  0.5 for radial by default) are excluded before the near-best recovery range
-  is calculated. Selection falls back to intraprotein recovery when credible
-  models recover no interprotein links.
-  Explicit repeat-split stability measurements remain to be designed and
-  validated across the Astral, E. coli, and small-system test datasets.
+  remains linear. The validation datasets did not establish a reproducible
+  benefit for radial models, and several radial results were visibly or
+  structurally less credible, so radial support remains exploratory.
+- [x] Complete the candidate audit. The candidate table records filters,
+  features, parameters, validation FDR/yield, relative recovery within each
+  kernel family, concise intra- and interprotein rank correlations over the full
+  range and high-Score.Diff tail, eligibility, recommendation status, and the
+  selection or rejection reason. Poorly fitted candidates are excluded before
+  the near-best recovery comparison, and selection falls back to intraprotein
+  recovery when credible models recover no interprotein links.
+- [x] Measure repeat-split stability and make a three-fit score ensemble the
+  default for the selected recommendation. Prefilter selection and the
+  hyperparameter grid run once; only the selected linear model (and an
+  explicitly requested radial recommendation) is refit with consecutive seeds.
+  CSM scores are averaged before polishing, summarization, and thresholding.
+  The ensemble closely reproduced the two-of-three consensus on translocon HCD,
+  E. coli URPs/PPIs, and Astral DSBSO peptide pairs. Set
+  `ensembleRepeats = 1` for the former single-fit behavior.
+- [x] Stabilize threshold estimation. Retain modeled interprotein thresholds to
+  handle sparse, jagged empirical FDR curves, with documented fallbacks when a
+  fit fails; do not interpret the raw count-based `calculateFDR()` value as
+  closer to ground truth when decoys are sparse or impose an automatic rule
+  that the raw estimate may never exceed the requested target. Keep raw counts
+  available as diagnostics without overriding the modeled estimate.
 - [x] Separate statistical classification from evidence polishing. Provide
   named, transparent polishing policies (for example, minimum product ions or
   backbone-ladder coverage), record the applied rules and their before/after
-  CSM counts, and recalculate FDR on the polished result.
+  CSM counts, and recalculate summaries on the polished result. Three distinct
+  product-ion cleavages per peptide are the current general default when the
+  required ion annotations are available; more stringent ladder policies remain
+  explicit, dataset-specific reporting choices.
 - [x] Add the classified reporting path: apply the reporting-level thresholds
   to scored CSMs, rerun `calculatePairs()` on the surviving CSMs, and only then
   summarize to URP, peptide-pair, protein-pair, or module-pair. This ensures
   `numCSM` and `numURP` describe threshold-passing evidence; the training-only
-  weighted count features are omitted from classified reporting tables.
-- [ ] Define and run an MS2 testing protocol on representative datasets spanning
-  the small, medium, and large complexity profiles, including difficult DSSO
-  data. Record the expected outputs, selected settings, model diagnostics,
-  thresholds, recovery, and seed-to-seed stability before declaring the
-  interface stable. The initial local harness is
-  `scratch/touchstoneComplexityTest.R`; this item remains open until its dataset
-  suite and repeated-seed comparisons have been reviewed.
+  weighted support features are omitted from classified reporting tables.
+- [x] Run the MS2 testing protocol across representative datasets spanning
+  small and large systems, HCD and EThcD fragmentation, DSSO and DSBSO
+  crosslinkers, and Orbitrap/Astral acquisition. The local harness and saved
+  audits cover TRiC, translocon, E. coli with a human entrapment database, and
+  Astral DSBSO. Future datasets may extend this suite, but additional examples
+  are not required before the public MS2 release.
 - [x] Validate the current small-system workflow against the collaborator-
-  delivered TRiC sample-1 result. The exact historical thresholding and ladder-
+  delivered TRiC sample-1 result. The historical thresholding and ladder-
   polishing order reproduced the same total of 554 target URPs, sharing 277 of
   278 inter-protein and 272 of 276 intra-protein URPs. Retain the historical
   sequential-ladder requirement as an explicit conservative reporting policy;
-  do not treat the high open/closed-structure violation rates as a useful truth
-  set for further tuning.
-- [ ] Complete validation of the HCD and EThcD translocon results. The initial
-  4UG0 comparison found a higher mapped inter-protein violation rate for EThcD
-  than HCD, so the larger EThcD result cannot yet be accepted solely as improved
-  fragmentation. Trace the historical Keenan/eLife analysis, compare shared and
-  fragmentation-method-specific links, and test whether EThcD-only recovery is
-  supported by improved peptide-2 fragmentation or reflects a liberal score
-  threshold. The same comparison supports de-emphasizing radial models, whose
-  unique additions were more violation-prone; radial remains an explicitly
-  requested exploratory option rather than a public default.
+  do not use the high open/closed-structure violation rates as a truth set for
+  further tuning.
+- [x] Validate HCD and EThcD translocon results sufficiently for stabilization.
+  Peptide-2 fragmentation and distinct-ion inspection explained much of the
+  questionable low-score EThcD recovery, and the minimum-three-ion policy
+  improved the structural comparison. Ribosomal structural distances remain an
+  imperfect truth set because conformational heterogeneity, polysomes, and
+  aggregation can produce real over-length links. Preserve the analysis and
+  conclusions without further structure-mapping work at this stage.
 - [x] Re-test the training-only Score.Diff prefilter on the large E. coli data
   used to develop the original procedure. Fixed linear models at Score.Diff
   thresholds 0, 5, 10, 15, and 20 were scored against the complete input, with
   the historical minimum-four-product-ions-per-peptide rule applied before
   independent 2% CSM and protein-pair thresholds. Thresholds 5--20 produced a
-  stable plateau. The automatic value of 10 recovered 10,437 normal-target
-  inter-protein CSMs, 136 normal decoys, 310 total entrapment hits, and 342
-  inter-protein PPIs, closely matching the historical 10,706/137/266 and about
-  366 PPI result. Lower-Score.Diff CSM recovery was retained and reported.
-- [x] Replace the self-inclusive, hard-thresholded `wtCSM` and `wtURP` training
-  features with `CSMsupport` and `URPsupport`. The default complexity profiles
-  now use self-excluded corroborating evidence with a bounded soft contribution.
-  The legacy features remain available for compatibility and comparison but are
-  omitted from the new automatic profiles and classified reporting tables.
-- [ ] Perform a bounded E. coli PPI adequacy audit before changing the scoring
-  architecture. Using the current accession-pair definitions, tabulate every
-  candidate inter-protein PPI with its SVM score/FDR band, CSM and URP support,
-  decoy/entrapment status, historical Touchstone and Kojak classification,
-  co-fractionation evidence, and STRING score. Evaluate two separate questions:
-  whether 2% PPI FDR is calibrated by entrapment, and whether orthogonal support
-  declines sensibly below the Touchstone threshold. Treat co-fractionation and
-  STRING as validation evidence, not training features.
-- [ ] Use the PPI audit as a decision gate. Retain one CSM-level SVM score with
-  independent CSM, URP, and PPI thresholds if its PPI ranking is adequate. If
-  ranking is inadequate, first test a transparent linear PPI aggregation score
-  based on the strongest and additional independent URPs. Do not introduce
-  separate SVMs at every summarization level or a Bayesian model without
-  evidence that the simpler design fails.
+  stable plateau, and the automatic value of 10 closely reproduced the
+  historical CSM and PPI recovery while retaining lower-Score.Diff CSMs during
+  full-dataset scoring.
+- [x] Replace the self-inclusive, hard-thresholded `wtCSM` and `wtURP` features
+  with self-excluded, bounded `CSMsupport` and `URPsupport`. Strengthening
+  `URPsupport` did not improve E. coli PPI recovery. Removing it through the
+  medium profile lost about 19% of interprotein CSMs and 34% of interprotein
+  URPs, while providing no clear PPI-classification advantage. Retain the
+  current `URPsupport` formulation in the large profile; do not claim that it
+  solves PPI-level under-reporting.
 
-## 2. Analyze and present the stable MS2 workflow
+## 2. Publish the stable MS2 workflow
 
-- [ ] Freeze the validated MS2 defaults and use that version for the full
-  Astral analysis.
-- [ ] Complete and report the full Astral analysis before revising the public
-  example.
+- [x] Freeze the current validated MS2 defaults: automatic complexity profile,
+  training-only Score.Diff prefilter when supported by the data, linear SVM,
+  one hyperparameter search, three selected-model score repeats, and explicit
+  post-scoring evidence polishing.
+- [x] Complete and deliver the full Astral peptide-pair analysis. The report
+  includes pre-classification and classified plots, xiView screenshots,
+  MS-Viewer result keys, an Excel workbook, crosslinker comparisons, and the
+  effects of instrument type and maximum-peak settings. DSSO performed more
+  convincingly than DSBSO in the current Prospector workflow; the 500-peak
+  searches likely suffered from Prospector's unmatched-peak penalty and do not
+  resolve optimal Astral scoring parameters.
 - [ ] Rebuild the ribosome example as a concise, reproducible end-to-end
   demonstration of input, training, model inspection, result preparation,
   classification, polishing, and reporting.
@@ -131,9 +140,40 @@ separate at every summarization level.
   installation instructions, expected outputs, and links to more detailed
   documentation where appropriate.
 - [ ] Run the README example from a clean R session and fresh package install,
-  then tag the stable public MS2 release.
+  run the complete package checks, then tag the stable public MS2 release.
 
-## 3. Repair and validate MS3 reconstruction
+## 3. Improve PPI scoring and reporting after the MS2 release
+
+- [x] Complete the bounded E. coli PPI adequacy audit using the 2025 Nature
+  Methods resubmission, Kojak calls, human entrapment proteins, orthogonal
+  SEC co-fractionation evidence, and STRING scores. The current Touchstone PPI
+  list is well calibrated and strongly supported, but it under-recovers PPIs
+  that Kojak reports and that independent evidence suggests are plausible.
+- [x] Test whether stronger or absent `URPsupport` resolves PPI under-recovery.
+  Stronger support reduced recovery, whereas omitting the feature greatly
+  reduced CSM/URP recovery and did not clearly improve efficient PPI
+  classification. Leave the CSM/URP feature unchanged.
+- [ ] Define a dedicated one-row-per-PPI results table plus an associated
+  evidence mapping that lists contributing URPs/CSMs without representing the
+  PPI solely through its best CSM. Defer complex protein-inference resolution;
+  retain transparent accession alternatives where feasible.
+- [ ] Prototype a transparent secondary PPI evidence score based on the best
+  URP score, additional independently positioned URPs, their score-weighted
+  support, and CSM evidence. Continue training the primary SVM at CSM level;
+  do not introduce separate SVMs for every summarization level without evidence
+  that the simpler secondary aggregation fails.
+- [ ] Validate any PPI score with decoys/entrapments, Kojak agreement,
+  co-fractionation, and STRING. Treat co-fractionation and STRING strictly as
+  held-out validation evidence rather than model features. Check portability on
+  at least one additional dataset before changing the public PPI workflow.
+- [ ] Revisit Bayesian integration and linear-peptide protein-ID priors only if
+  the transparent aggregation score is inadequate.
+- [ ] Deprioritized side quest: investigate high-confidence Kojak spectra for
+  which Prospector reports no corresponding annotation, separately from cases
+  where both engines identify the crosslink but Touchstone places it below the
+  reporting threshold.
+
+## 4. Repair and validate MS3 reconstruction
 
 - [ ] Inventory the scan-linking and reconstruction code in `R/linkedScans.R`
   and document the assumptions made about scan relationships.
@@ -144,7 +184,7 @@ separate at every summarization level.
 - [ ] Keep reconstructed-MS3 support clearly marked experimental until those
   cases pass end-to-end tests.
 
-## 4. Prospector integration and deferred extensions
+## 5. Prospector integration and deferred extensions
 
 - [ ] Improve integration between Protein Prospector Search Compare and
   Touchstone. Detect and canonicalize the optional MS-Product-derived fields
@@ -166,7 +206,6 @@ separate at every summarization level.
   silently. Provide concise instructions for generating the required Search
   Compare output and revisit more direct Prospector-to-Touchstone transfer if a
   stable interface becomes available.
-
 - [ ] Add experimental ternary-crosslink input only after the binary and MS3
   paths are stable.
 - [ ] Define adapters from other search engines into Touchstone's canonical
@@ -180,14 +219,9 @@ separate at every summarization level.
   Until then, keep it separate from statistical classification as a transparent
   evidence-quality policy rather than tuning the SVM to reproduce the TRiC
   reporting rule.
-- [ ] Revisit a dedicated PPI results format only after the bounded PPI audit.
-  A future format may separate one-row-per-PPI summaries from URP/CSM evidence
-  mappings, but the current best-row representation remains sufficient for the
-  stabilization analysis.
-- [ ] Defer Bayesian evidence integration, linear-peptide priors, and formal
-  protein inference. In particular, do not attempt to resolve overlapping but
-  non-identical accession sets until the stable CSM/URP workflow and the need
-  for a separate PPI score have been established.
+- [ ] Defer formal protein inference. In particular, do not attempt to resolve
+  overlapping but non-identical accession sets until the stable CSM/URP
+  workflow and PPI evidence-table requirements make the scope concrete.
 - [ ] Decide whether to remove or clearly quarantine the deprecated
   `trainClassifier()` workflow and unused parallel (`furrr`/`future`) paths.
 - [ ] Add continuous package checks and decide how to handle the large bundled
