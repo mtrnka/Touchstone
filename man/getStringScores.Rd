@@ -21,3 +21,9 @@ CLMS results, but this will only work for the most common research organisms.
 Otherwise the user should provide the ncbiTaxonomy code:
 \verb{https://string-db.org/} under the \code{Oraganisms} link.
 }
+\details{
+Protein pairs must first be defined with \code{\link[=calculatePairs]{calculatePairs()}}. Each unique
+target inter-protein pair is queried once; its score is then joined back to
+every corresponding input row. Unmapped accessions and pairs without a
+STRING interaction receive \code{NA} rather than stopping the analysis.
+}

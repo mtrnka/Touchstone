@@ -2,23 +2,29 @@
 % Please edit documentation in R/classifier.R
 \name{trainCrosslinkScore}
 \alias{trainCrosslinkScore}
-\title{Trains an SVM classifier for CLMS datasets. Performs basic feature selection with
-different sets of features used for small database searches and larger one.
-Performs some prefilitering of the data that optimizes performance based on database
-search size. Performs hyperparamater optimization in a grid search using \code{tuneSVM()}
-and chooses the model which produces the most inter-protein crosslinked residue pairs
-in the range of 0.01 and 0.05 FDR.}
+\title{Train and select a crosslink-scoring SVM}
 \usage{
 trainCrosslinkScore(
   datTab,
   params = NULL,
+  complexity = "auto",
+  complexityBreaks = c(20, 200),
   scoreName = "SVM.score",
   scalingFactor = the$decoyScalingFactor,
   targetER = 0.01,
   sampleNo = 20000,
-  cost_values = c(1, 5, 10),
-  gamma_values = c(0.01, 0.05, 0.1),
-  sd_values = c(0, 5, 10, 15, 20)
+  cost_values = c(0.001, 0.01, 0.1, 1, 10),
+  gamma_values = c(0.001, 0.01, 0.05, 0.1),
+  sd_values = c(0, 5, 10, 15, 20),
+  scoreDiffPrefilter = NULL,
+  recoveryFraction = 0.9,
+  minLinearCorrelation = 0.2,
+  minRadialCorrelation = 0.5,
+  kernels = "linear",
+  seed = 1,
+  ensembleRepeats = 3,
+  splitBy = NULL,
+  verbose = FALSE
 )
 }
 \arguments{
@@ -26,9 +32,23 @@ trainCrosslinkScore(
 
 \item{params}{Character vector specifying names of the features in \code{datTab} used to train model.}
 
+\item{complexity}{Dataset-complexity profile used for automatic feature
+selection and prefilter behavior. \code{"auto"} selects a profile from proteins
+with plausible target CSM evidence (\code{Score.Diff > 10}) from both
+intra- and inter-protein crosslinks, while retaining a dominant-protein
+safeguard for simple systems with sparse background matches. It can be
+overridden with \code{"small"}, \code{"medium"}, or \code{"large"}.}
+
+\item{complexityBreaks}{Two increasing protein-count boundaries used by
+\code{complexity = "auto"}. The defaults assign up to 20 proteins to \code{"small"},
+21--200 to \code{"medium"}, and more than 200 to \code{"large"}.}
+
 \item{scoreName}{Name for the new scoring function.}
 
-\item{scalingFactor}{An integer k. The multiple by which decoy DB is larger than target DB}
+\item{scalingFactor}{An integer k. The multiple by which the decoy database
+is larger than the target database. Defaults to the value established for
+the current analysis by \code{\link[=setDecoyScalingFactor]{setDecoyScalingFactor()}}. Touchstone initializes
+this value to 1 when the package is loaded.}
 
 \item{targetER}{Desired FDR for classification of CSMs}
 
@@ -36,21 +56,78 @@ trainCrosslinkScore(
 
 \item{cost_values}{Numeric vector of cost values used for hyperparameter tuning of the SVM model}
 
-\item{gamma_values}{Numeric vector of gamma values used for hyperparameter tuning of the SVM model}
+\item{gamma_values}{Numeric vector of gamma values used only when radial
+kernels are explicitly requested.}
 
-\item{sd_values}{Numeric vector of Score Diff values to use for prefilitering optimiziation.}
+\item{sd_values}{Numeric vector of Score.Diff thresholds considered for the
+SVM training subset. Rows below the selected value are excluded from model
+fitting but remain in the scored results.}
+
+\item{scoreDiffPrefilter}{Optional fixed Score.Diff training threshold. When
+supplied, it bypasses automatic prefilter selection. All input rows are
+still scored. This is useful for prespecified analyses and validation
+comparisons.}
+
+\item{recoveryFraction}{Minimum fraction of the best recovery within a kernel
+family required for a credible candidate to remain under consideration.
+Interprotein recovery is used when available; otherwise intraprotein
+recovery is used. Among these near-best candidates, stronger within-class
+correlation with Score.Diff is preferred. Defaults to 0.9.}
+
+\item{minLinearCorrelation}{Minimum acceptable worst within-class Spearman
+correlation for linear candidates. Defaults to 0.2.}
+
+\item{minRadialCorrelation}{Minimum acceptable worst within-class Spearman
+correlation for radial candidates. Defaults to 0.5 because radial models
+can produce flexible, non-monotonic score relationships.}
+
+\item{kernels}{Character vector of SVM kernels to evaluate. The conservative
+default is \code{"linear"}; include \code{"radial"} to evaluate radial candidates.
+Each requested kernel family receives its own recommendation, while the
+overall recommendation prefers an eligible linear candidate.}
+
+\item{seed}{Integer seed used to make cross-fitting reproducible.}
+
+\item{ensembleRepeats}{Number of cross-fitted score estimates to average for
+each recommended model. Hyperparameter tuning and Score.Diff prefilter
+selection are performed once. Additional repeats refit only the selected
+model specification, using consecutive seeds beginning with \code{seed}.
+Defaults to 3; use 1 for the previous single-fit behavior.}
+
+\item{splitBy}{Character vector naming columns whose rows must remain together
+during cross-fitting. The default uses residue pairs when available, then a
+spectrum identifier, and finally individual rows.}
+
+\item{verbose}{Print progress and the candidate table.}
 }
 \value{
-A list containing all of the SVM models at different cost and gamma values
-as well as a summary table.
+A \code{touchstone_training} object containing the recommended linear
+model, an optional recommended radial model, a self-contained candidate
+audit table, compact candidate scores and evaluation metadata, prefilter
+information, and training settings. The source CSM table is stored once;
+complete scored CSM and URP tables are materialized for recommended models
+and reconstructed on demand for numbered alternate candidates. Candidate
+diagnostics report Spearman
+correlations between SVM.score and Score.Diff separately for target inter-
+and intraprotein CSMs, both across the full score range and within the upper
+half ranked by Score.Diff. A candidate's weakest available correlation must
+meet the configured minimum for its kernel family.
 }
 \description{
-Trains an SVM classifier for CLMS datasets. Performs basic feature selection with
-different sets of features used for small database searches and larger one.
-Performs some prefilitering of the data that optimizes performance based on database
-search size. Performs hyperparamater optimization in a grid search using \code{tuneSVM()}
-and chooses the model which produces the most inter-protein crosslinked residue pairs
-in the range of 0.01 and 0.05 FDR.
+Performs feature selection, optional Score.Diff training-subset selection,
+and a reproducible grid search. Score.Diff filtering affects which CSMs fit
+the SVM but all input CSMs are subsequently scored. Linear SVMs are the
+conservative default. Candidate
+models must reach the requested FDR in at least one crosslink class and retain
+a positive within-class relationship between SVM.score and Score.Diff.
+Within each requested kernel family, candidates must retain a specified
+fraction of the best recovery among credible models. Interprotein recovery is
+used when available; otherwise selection falls back to intraprotein recovery.
+The recommendation then favors the strongest correlation in the candidate's
+weakest evaluable crosslink class, followed by less flexible
+hyperparameters. The overall recommendation is the best eligible linear
+model. When radial kernels are
+requested, their separate recommendation is returned as \code{recommendedRadial}.
 }
 \seealso{
 \code{\link[=tuneSVM]{tuneSVM()}}, \code{\link[=tuneSVM.helper]{tuneSVM.helper()}}, \code{\link[=buildSVM]{buildSVM()}}

@@ -4,7 +4,7 @@
 \alias{bestPepPair}
 \title{Summarize on Peptide Pairs}
 \usage{
-bestPepPair(datTab, classifier = .data$SVM.score, retainGroups = T)
+bestPepPair(datTab, classifier = SVM.score, retainGroups = TRUE)
 }
 \arguments{
 \item{datTab}{Parsed CLMS search results.}

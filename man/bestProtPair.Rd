@@ -4,7 +4,7 @@
 \alias{bestProtPair}
 \title{Summarize on Protein Pairs (PPs)}
 \usage{
-bestProtPair(datTab, classifier = .data$SVM.score, retainGroups = T)
+bestProtPair(datTab, classifier = SVM.score, retainGroups = TRUE)
 }
 \arguments{
 \item{datTab}{Parsed CLMS search results.}

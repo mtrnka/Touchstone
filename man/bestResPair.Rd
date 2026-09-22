@@ -4,7 +4,7 @@
 \alias{bestResPair}
 \title{Summarize on Unique Residue Pairs (URPs)}
 \usage{
-bestResPair(datTab, classifier = .data$SVM.score, retainGroups = T)
+bestResPair(datTab, classifier = SVM.score, retainGroups = TRUE)
 }
 \arguments{
 \item{datTab}{Parsed CLMS search results.}

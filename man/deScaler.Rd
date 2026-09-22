@@ -4,12 +4,16 @@
 \alias{deScaler}
 \title{Rescales data to plot and tabulate estimate decoy hits}
 \usage{
-deScaler(datTab, scalingFactor = the$decoyScalingFactor)
+deScaler(datTab, scalingFactor = the$decoyScalingFactor, seed = 1)
 }
 \arguments{
 \item{datTab}{Parsed CLMS search results.}
 
 \item{scalingFactor}{The decoy scaling factor}
+
+\item{seed}{Integer seed used for reproducible decoy downsampling. Use
+\code{NULL} for stochastic sampling. The caller's random-number state is
+restored when the function finishes.}
 }
 \value{
 A data frame

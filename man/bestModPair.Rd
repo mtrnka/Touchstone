@@ -4,7 +4,7 @@
 \alias{bestModPair}
 \title{Summarize on Module Pairs (MPs)}
 \usage{
-bestModPair(datTab, classifier = .data$SVM.score, retainGroups = T)
+bestModPair(datTab, classifier = SVM.score, retainGroups = TRUE)
 }
 \arguments{
 \item{datTab}{Parsed CLMS search results.}

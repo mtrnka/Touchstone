@@ -14,9 +14,14 @@ tuneSVM.helper(
   scoreName = "SVM.score",
   scalingFactor = the$decoyScalingFactor,
   sampleNo = 20000,
-  cost,
-  gamma,
-  kernel
+  cost = 1,
+  gamma = NA_real_,
+  kernel = "linear",
+  seed = 1,
+  splitBy = NULL,
+  trainingRows = NULL,
+  compact = FALSE,
+  verbose = FALSE
 )
 }
 \arguments{
@@ -28,7 +33,9 @@ tuneSVM.helper(
 
 \item{scoreName}{Name for the new scoring function.}
 
-\item{scalingFactor}{An integer k. The multiple by which decoy DB is larger than target DB}
+\item{scalingFactor}{An integer k. The multiple by which the decoy database
+is larger than the target database. Defaults to the value established for
+the current analysis by \code{\link[=setDecoyScalingFactor]{setDecoyScalingFactor()}}.}
 
 \item{sampleNo}{Size of the training dataset (integer).}
 
@@ -37,6 +44,19 @@ tuneSVM.helper(
 \item{gamma}{Gamma value passed to \code{e1071::svm()}}
 
 \item{kernel}{Kernel value passed to \code{e1071::svm()}}
+
+\item{seed}{Integer seed used to make cross-fitting reproducible.}
+
+\item{splitBy}{Character vector naming columns whose rows must remain together
+during cross-fitting.}
+
+\item{trainingRows}{Optional logical vector selecting rows eligible for SVM
+fitting. Every row in \code{datTab} is still scored.}
+
+\item{compact}{Return a memory-efficient candidate containing its score
+vector and audit data instead of complete duplicated CSM and URP tables.}
+
+\item{verbose}{Print training diagnostics.}
 }
 \value{
 A list containing the trained data at CSM and URP levels, score thresholds

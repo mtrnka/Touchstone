@@ -15,5 +15,7 @@ No reutrn value.
 \description{
 The decoy scaling factor is an integer k that describes how how much larger the
 decoy database is to the target database.  Should be set globally once for each
-analysis.  Defaults to 1.
+analysis, after loading or reloading Touchstone. All functions with a
+\code{scalingFactor} argument use this value by default. Defaults to 1 whenever the
+package is loaded.
 }

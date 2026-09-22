@@ -7,9 +7,9 @@ and the best scoring CSM from the group is chosen as the representative}
 \usage{
 bestPair(
   datTab,
-  summarizationVar = .data$xlinkedResPair,
-  classifier = .data$SVM.score,
-  retainGroups = T
+  summarizationVar = xlinkedResPair,
+  classifier = SVM.score,
+  retainGroups = TRUE
 )
 }
 \arguments{

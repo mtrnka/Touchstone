@@ -26,7 +26,6 @@
 #' @importFrom dplyr summarize
 #' @importFrom dplyr tally
 #' @importFrom dplyr ungroup
-#' @importFrom future plan
 #' @importFrom ggplot2 aes
 #' @importFrom ggplot2 element_line
 #' @importFrom ggplot2 element_rect

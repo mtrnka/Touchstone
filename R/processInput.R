@@ -1,7 +1,153 @@
 #' @import rlang
 
-## quiets concerns of R CMD check re: the .'s that appear in pipelines
-if(getRversion() >= "2.15.1")  utils::globalVariables(c("."))
+## Quiets R CMD check notes for symbols intentionally captured by tidy evaluation.
+if (getRversion() >= "2.15.1") {
+  utils::globalVariables(c(
+    ".", "SVM.score", "xlinkedModulPair", "xlinkedPepPair",
+    "xlinkedProtPair", "xlinkedResPair"
+  ))
+}
+
+#' Standardize Protein Prospector Search Compare column names
+#'
+#' Converts known Search Compare column-name variants to the canonical names
+#' used internally by Touchstone. Paired peptide/protein fields must occur
+#' exactly twice; ambiguous mappings are rejected rather than guessed.
+#'
+#' @param datTab A data frame read from a Protein Prospector Search Compare
+#'   export.
+#' @return `datTab` with standardized column names.
+#' @keywords internal
+standardizeProspectorColumns <- function(datTab) {
+  if (!is.data.frame(datTab)) {
+    stop("datTab must be a data frame.", call. = FALSE)
+  }
+
+  original_names <- names(datTab)
+  normalized_names <- original_names %>%
+    stringr::str_replace("_[12]$", "") %>%
+    stringr::str_replace_all("[[:space:]]", ".") %>%
+    stringr::str_replace_all("#", "Num") %>%
+    stringr::str_replace_all("%", "Perc")
+
+  # readr repairs duplicate names with suffixes such as "...5". Strip those
+  # suffixes only while matching; the final canonical names remain unique.
+  match_names <- stringr::str_remove(normalized_names, "\\.\\.\\.[0-9]+$")
+
+  pair_specs <- list(
+    list(
+      label = "accession",
+      pattern = "^(Acc|Acc\\.Num|Accession|Accession\\.Num)$",
+      canonical = c("Acc.1", "Acc.2"),
+      required = TRUE
+    ),
+    list(
+      label = "species",
+      pattern = "^Species$",
+      canonical = c("Species.1", "Species.2"),
+      required = FALSE
+    ),
+    list(
+      label = "protein name",
+      pattern = "^Protein\\.Name$",
+      canonical = c("Protein.1", "Protein.2"),
+      required = FALSE
+    ),
+    list(
+      label = "protein molecular weight",
+      pattern = "^Protein\\.MW$",
+      canonical = c("MW.1", "MW.2"),
+      required = FALSE
+    ),
+    list(
+      label = "protein length",
+      pattern = "^Protein\\.Length$",
+      canonical = c("Protein.len.1", "Protein.len.2"),
+      required = FALSE
+    ),
+    list(
+      label = "MSMS ions",
+      pattern = "^MSMS\\.Ions$",
+      canonical = c("MSMS.Ions.1", "MSMS.Ions.2"),
+      required = FALSE
+    ),
+    list(
+      label = "MSMS mass-to-charge values",
+      pattern = "^MSMS\\.M/Zs$",
+      canonical = c("MSMS.MZs.1", "MSMS.MZs.2"),
+      required = FALSE
+    ),
+    list(
+      label = "MSMS intensities",
+      pattern = "^MSMS\\.Intensities$",
+      canonical = c("MSMS.Intensities.1", "MSMS.Intensities.2"),
+      required = FALSE
+    ),
+    list(
+      label = "MSMS errors",
+      pattern = "^MSMS\\.Errors$",
+      canonical = c("MSMS.Errors.1", "MSMS.Errors.2"),
+      required = FALSE
+    ),
+    list(
+      label = "percent bond cleavage",
+      pattern = "^Perc\\.Bond\\.Cleavage$",
+      canonical = c("Perc.Bond.Cleavage.1", "Perc.Bond.Cleavage.2"),
+      required = FALSE
+    )
+  )
+
+  for (spec in pair_specs) {
+    canonical_present <- spec$canonical %in% normalized_names
+    positions <- which(stringr::str_detect(match_names, spec$pattern))
+
+    if (all(canonical_present) && length(positions) == 0) {
+      next
+    }
+
+    if (any(canonical_present)) {
+      stop(
+        "Ambiguous ", spec$label, " columns: canonical and unstandardized ",
+        "names were both found.",
+        call. = FALSE
+      )
+    }
+
+    if (length(positions) == 0 && !spec$required) {
+      next
+    }
+
+    if (length(positions) != 2) {
+      matched <- if (length(positions) == 0) {
+        "none"
+      } else {
+        paste(original_names[positions], collapse = ", ")
+      }
+
+      stop(
+        "Expected exactly two ", spec$label, " columns, but found ",
+        length(positions), ": ", matched, ".",
+        call. = FALSE
+      )
+    }
+
+    normalized_names[positions] <- spec$canonical
+    match_names[positions] <- spec$canonical
+  }
+
+  duplicate_names <- unique(normalized_names[duplicated(normalized_names)])
+  if (length(duplicate_names) > 0) {
+    stop(
+      "Column standardization produced duplicate name(s): ",
+      paste(duplicate_names, collapse = ", "),
+      ".",
+      call. = FALSE
+    )
+  }
+
+  names(datTab) <- normalized_names
+  datTab
+}
 
 #' Read Search Compare Output from Protein Prospector
 #'
@@ -19,51 +165,18 @@ if(getRversion() >= "2.15.1")  utils::globalVariables(c("."))
 #'
 readProspectorXLOutput <- function(inputFile, minPepLen = 3, minPepScore = 0, minScoreDiff = 0, minIons = 0){
   datTab <- readr::read_tsv(inputFile, guess_max = 10000)
-  header <- names(datTab) %>%
-    stringr::str_replace("_[[0-9]]$", "") %>%
-    stringr::str_replace_all("[[:space:]]",".") %>%
-    stringr::str_replace_all("#", "Num") %>%
-    stringr::str_replace_all("%", "Perc")
-  acc_pos <- stringr::str_which(header, "Acc")
-  header[acc_pos] <- c("Acc.1", "Acc.2")
-  spec_pos <- stringr::str_which(header, "Species")
-  header[spec_pos] <- c("Species.1", "Species.2")
-  prot_pos <- stringr::str_which(header, "Protein.Name")
-  header[prot_pos] <- c("Protein.1", "Protein.2")
-  if (sum(stringr::str_detect(header, "Protein.MW")) == 2) {
-    mw_pos <- stringr::str_which(header, "Protein.MW")
-    header[mw_pos] <- c("MW.1", "MW.2")
-  }
-  if (sum(stringr::str_detect(header, "Protein.Length")) == 2) {
-    len_pos <- stringr::str_which(header, "Protein.Length")
-    header[len_pos] <- c("Protein.len.1", "Protein.len.2")
-  }
-  if (sum(stringr::str_detect(header, "MSMS.Ions")) == 2) {
-    len_pos <- stringr::str_which(header, "MSMS.Ions")
-    header[len_pos] <- c("MSMS.Ions.1", "MSMS.Ions.2")
-  }
-  if (sum(stringr::str_detect(header, "MSMS.M/Zs")) == 2) {
-    len_pos <- stringr::str_which(header, "MSMS.M/Zs")
-    header[len_pos] <- c("MSMS.MZs.1", "MSMS.MZs.2")
-  }
-  if (sum(stringr::str_detect(header, "MSMS.Intensities")) == 2) {
-    len_pos <- stringr::str_which(header, "MSMS.Intensities")
-    header[len_pos] <- c("MSMS.Intensities.1", "MSMS.Intensities.2")
-  }
-  if (sum(stringr::str_detect(header, "MSMS.Errors")) == 2) {
-    len_pos <- stringr::str_which(header, "MSMS.Errors")
-    header[len_pos] <- c("MSMS.Errors.1", "MSMS.Errors.2")
-  }
-  if (sum(stringr::str_detect(header, "Perc.Bond.Cleavage")) == 2) {
-    len_pos <- stringr::str_which(header, "Perc.Bond.Cleavage")
-    header[len_pos] <- c("Perc.Bond.Cleavage.1", "Perc.Bond.Cleavage.2")
-  }
-  names(datTab) <- header
+  datTab <- standardizeProspectorColumns(datTab)
   if (!"Spectrum" %in% names(datTab)) {
     datTab$Spectrum <- 1
   }
   if (!"distance" %in% names(datTab)) {
     datTab$distance <- NA_real_
+  }
+  if (!"Protein.1" %in% names(datTab)) {
+    datTab$Protein.1 <- datTab$Acc.1
+  }
+  if (!"Protein.2" %in% names(datTab)) {
+    datTab$Protein.2 <- datTab$Acc.2
   }
   datTab <- datTab %>% mutate(
     Acc.1 = as.character(.data$Acc.1),
@@ -77,14 +190,14 @@ readProspectorXLOutput <- function(inputFile, minPepLen = 3, minPepScore = 0, mi
   datTab <- calculatePercentMatched(datTab)
   datTab <- calculatePeptideLengths(datTab)
   datTab <- lengthFilter(datTab, minLen = minPepLen, maxLen = 40)
-  if ("Sc.1" %in% names(datTab) & "Sc.1" %in% names(datTab)) {
+  if ("Sc.1" %in% names(datTab) & "Sc.2" %in% names(datTab)) {
     datTab <- scoreFilter(datTab, minScore = minPepScore) }
   datTab <- datTab %>%
     filter(.data$Score.Diff >= minScoreDiff)
   if (nrow(datTab) == 0) {
     return(NULL) }
   datTab <- calculatePairs(datTab)
-  if ("numProdIons.1" %in% names(datTab) & "numProdIons.1" %in% names(datTab)) {
+  if ("numProdIons.1" %in% names(datTab) & "numProdIons.2" %in% names(datTab)) {
     datTab <- productIonFilter(datTab, minProducts.1 = minIons, minProducts.2 = minIons) }
   datTab <- datTab %>%
     filter(.data$xlinkedResPair != "0.decoy::0.decoy")
@@ -113,9 +226,24 @@ calculateDecoys <- function(datTab) {
   return(datTab)
 }
 
-#' Determine residue, peptide,and protein pairs
+#' Determine residue, peptide, and protein pairs
+#'
+#' In addition to raw CSM and URP counts, this function calculates two
+#' corroborating-evidence features for classifier training. `CSMsupport` uses
+#' evidence from other CSMs assigned to the same unique residue pair, while
+#' `URPsupport` uses evidence from other unique residue pairs assigned to the
+#' same protein pair. The observation being scored is excluded at the relevant
+#' level. Each supporting observation receives a logistic weight centered at a
+#' Score.Diff of 15 with scale 2.5; observations below Score.Diff 5 contribute
+#' exactly zero. The summed support is transformed with `log1p()`.
+#'
+#' The legacy self-inclusive `wtCSM` and `wtURP` columns are retained for
+#' compatibility and controlled comparisons, but are not used by the new
+#' automatic feature profiles.
 #'
 #' @param datTab Parsed CLMS search results.
+#' @param scalingFactor An integer describing how many times larger the decoy
+#'   database is than the target database.
 #' @return A data frame
 #' @export
 #'
@@ -125,18 +253,20 @@ calculatePairs <- function(datTab, scalingFactor = the$decoyScalingFactor){
       Acc.1 = as.character(.data$Acc.1),
       Acc.2 = as.character(.data$Acc.2),
       Acc.1.w = case_when(
-        str_detect(Acc.1, "(^r[[:digit:]]_|^dec|^DECOY)") ~ str_c("decoy@", Protein.1),
-        T ~ Acc.1),
+        stringr::str_detect(.data$Acc.1, "(^r[[:digit:]]_|^dec|^DECOY)") ~
+          stringr::str_c("decoy@", .data$Protein.1),
+        TRUE ~ .data$Acc.1),
       Acc.2.w = case_when(
-        str_detect(Acc.2, "(^r[[:digit:]]_|^dec|^DECOY)") ~ str_c("decoy@", Protein.2),
-        T ~ Acc.2)
+        stringr::str_detect(.data$Acc.2, "(^r[[:digit:]]_|^dec|^DECOY)") ~
+          stringr::str_c("decoy@", .data$Protein.2),
+        TRUE ~ .data$Acc.2)
     )
   datTab$xlinkedProtPair <- ifelse(datTab$Acc.1.w <= datTab$Acc.2.w,
                                    paste(datTab$Acc.1.w, datTab$Acc.2.w, sep="::"),
                                    paste(datTab$Acc.2.w, datTab$Acc.1.w, sep="::")
   )
   datTab <- datTab %>%
-    select(-Acc.1.w, -Acc.2.w)
+    select(-"Acc.1.w", -"Acc.2.w")
 # datTab <- datTab %>%
   #   mutate(Acc.1 = as.character(.data$Acc.1),
   #          Acc.2 = as.character(.data$Acc.2))
@@ -165,22 +295,44 @@ calculatePairs <- function(datTab, scalingFactor = the$decoyScalingFactor){
   datTab$xlinkedResPair <- as.factor(datTab$xlinkedResPair)
   datTab$xlinkedProtPair <- as.factor(datTab$xlinkedProtPair)
   datTab$xlinkedPepPair <- as.factor(datTab$xlinkedPepPair)
+  datTab$.evidenceWeight <- crosslinkEvidenceWeight(datTab$Score.Diff)
   datTab <- datTab %>%
     add_count(.data$xlinkedResPair, name="numCSM") %>%
     group_by(.data$xlinkedResPair) %>%
-    mutate(wtCSM = log1p(sum(Score.Diff >= 15))) %>%
+    mutate(
+      wtCSM = log1p(sum(.data$Score.Diff >= 15)),
+      CSMsupport = log1p(pmax(
+        0,
+        sum(.data$.evidenceWeight) - .data$.evidenceWeight
+      ))
+    ) %>%
     ungroup()
   uniqueProtCount <- datTab %>%
     select("xlinkedProtPair", "xlinkedResPair", "Score.Diff") %>%
     group_by(.data$xlinkedProtPair, .data$xlinkedResPair) %>%
     filter(.data$Score.Diff == max(.data$Score.Diff)) %>%
     slice(1) %>%
+    mutate(.urpEvidenceWeight = crosslinkEvidenceWeight(.data$Score.Diff)) %>%
     group_by(.data$xlinkedProtPair) %>%
     add_count(name = "numURP") %>%
-    mutate(wtURP = log1p(sum(Score.Diff >= 15))) %>%
+    mutate(
+      wtURP = log1p(sum(.data$Score.Diff >= 15)),
+      URPsupport = log1p(pmax(
+        0,
+        sum(.data$.urpEvidenceWeight) - .data$.urpEvidenceWeight
+      ))
+    ) %>%
     ungroup() %>%
-    select(-Score.Diff)
-  datTab <- left_join(select(datTab, -any_of(c("numURP", "wtURP"))), uniqueProtCount, by=c("xlinkedProtPair","xlinkedResPair"))
+    select(-"Score.Diff", -".urpEvidenceWeight")
+  datTab <- left_join(
+    select(
+      datTab,
+      -any_of(c("numURP", "wtURP", "URPsupport"))
+    ),
+    uniqueProtCount,
+    by = c("xlinkedProtPair", "xlinkedResPair")
+  ) %>%
+    select(-".evidenceWeight")
   if ("Module.1" %in% names(datTab) & "Module.2" %in% names(datTab)) {
     datTab <- datTab %>%
       mutate(Module.1 = as.character(.data$Module.1),
@@ -200,6 +352,19 @@ calculatePairs <- function(datTab, scalingFactor = the$decoyScalingFactor){
     datTab <- calculateProductIons(datTab)
   }
   return(datTab)
+}
+
+crosslinkEvidenceWeight <- function(scoreDiff,
+                                    floor = 5,
+                                    center = 15,
+                                    scale = 2.5) {
+  scoreDiff <- as.numeric(scoreDiff)
+  weight <- rep(0, length(scoreDiff))
+  contributes <- !is.na(scoreDiff) & scoreDiff >= floor
+  weight[contributes] <- stats::plogis(
+    (scoreDiff[contributes] - center) / scale
+  )
+  weight
 }
 
 #' Count number of CSMs per URP and the number of URPs per PP
@@ -264,7 +429,7 @@ calculatePercentMatched <- function(datTab) {
     datTab$percMatched <- datTab$Match.Int
   } else if ("Num.Pks" %in% names(datTab) & "Num.Unmat" %in% names(datTab)) {
     num.Matched <- datTab$Num.Pks - datTab$Num.Unmat
-    datTab$percMatch <- num.Matched / datTab$Num.Pks
+    datTab$percMatched <- num.Matched / datTab$Num.Pks
   }
   return(datTab)
 }
@@ -412,27 +577,11 @@ calculateDiagnosticPairsNonCleavable <- function(datTab) {
 #'
 #' @param msms.ions List of product ion matches found in Search Compare output
 #' @param pep.len Length of peptide
+#' @param max_missing Maximum number of missing cleavage positions allowed in a
+#'   gapped ion ladder.
 #' @return A numeric vector of bond cleavage indicies
 #' @seealso [calculateProductIons()]
-# getProductIonMatches <- function(msms.ions, pep.len) {
-#   # will break if pep.len > 99
-#   ions <- unlist(stringr::str_split(msms.ions, ";"))
-#   n_indicies <- stringr::str_extract_all(ions, "(?<=^[bc][\\*\\#]*)([0-9]+)(?!\\-)") %>%
-#   # n_indicies <- stringr::str_extract_all(ions, "(?<=^[bc][\\*\\#]?)([[0-9]]{1,2})(?!\\-)") %>%
-#     unlist %>%
-#     unique %>%
-#     as.numeric
-#   c_indicies <- stringr::str_extract_all(ions, "(?<=^[yz][\\*\\#]*)([0-9]+)(?!\\-)") %>%
-#   # c_indicies <- stringr::str_extract_all(ions, "(?<=^[yz][\\*\\#]?)([[0-9]]{1,2})(?!\\-)") %>%
-#     unlist %>%
-#     unique %>%
-#     as.numeric
-#   c_indicies <- pep.len - c_indicies %>%
-#     sort
-#   ion_indicies <- union(n_indicies, c_indicies) %>% sort
-#   return(ion_indicies)
-# }
-
+#'
 getProductIonMatches <- function(msms.ions, pep.len, max_missing = 1) {
   # Helper for empty / missing inputs
   empty_result <- function() {

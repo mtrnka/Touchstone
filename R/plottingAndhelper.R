@@ -133,7 +133,9 @@ removeModule <- function(datTab, modules) {
 #'
 #' The decoy scaling factor is an integer k that describes how how much larger the
 #' decoy database is to the target database.  Should be set globally once for each
-#' analysis.  Defaults to 1.
+#' analysis, after loading or reloading Touchstone. All functions with a
+#' `scalingFactor` argument use this value by default. Defaults to 1 whenever the
+#' package is loaded.
 #' @param dsf an integer, the decoy scaling factor k.
 #'
 #' @returns No reutrn value.
@@ -272,14 +274,35 @@ generateMSViewerLink.ms3 <- function(path, fraction, z, peptide, spectrum,
 
 #' Formats the crosslink results for exporting / viewing
 #'
-#' @param datTab Parsed CLMS search results.
+#' @param datTab Parsed CLMS search results or a `touchstone_results` object.
 #' @param msviewer Formats column names to be compatible with MS-Viewer
 #' @param extraCols Character vector of extra column names to be included in the report
+#' @param classifier Optional score column used to sort the exported table. When
+#'   omitted, the classifier stored in a `touchstone_results` object is used,
+#'   followed by `SVM.score` and then `Score.Diff` when available.
 #'
 #' @returns A data frame
 #' @export
 #'
-formatXLTable <- function(datTab, msviewer=F, extraCols=NULL) {
+formatXLTable <- function(datTab, msviewer=F, extraCols=NULL,
+                          classifier = NULL) {
+  classifier.supplied <- !missing(classifier) && !is.null(classifier)
+  classifier.name <- if (classifier.supplied) {
+    .classifierName(rlang::enquo(classifier))
+  } else {
+    NULL
+  }
+  stored.classifier <- NULL
+  if (inherits(datTab, "touchstone_results")) {
+    stored.classifier <- datTab$settings$classifier
+    datTab <- datTab$data
+  }
+  classifier.name <- .resolveAvailableClassifier(
+    datTab,
+    requested = classifier.name,
+    stored = stored.classifier,
+    caller = "formatXLTable"
+  )
   annoyingColumns <- stringr::str_which(names(datTab), "(Int|Dec)[a-z]{2}\\.[[1-2]]")
   if (length(annoyingColumns) > 0) {
     datTab <- datTab[, -annoyingColumns]
@@ -288,11 +311,13 @@ formatXLTable <- function(datTab, msviewer=F, extraCols=NULL) {
     select(-starts_with("Res"),
            -starts_with("Num\\."),
            -any_of("massError"))
-  if (sum(!is.na(datTab$distance)) == 0) {
+  if (!"distance" %in% names(datTab) || all(is.na(datTab$distance))) {
     datTab <- datTab %>%
       select(-any_of("distance"))
   }
-  if (sum(stringr::str_detect(names(datTab), "SVM.score")) > 0) datTab <- datTab[order(datTab$SVM.score, decreasing = T),]
+  if (!is.null(classifier.name)) {
+    datTab <- datTab[order(datTab[[classifier.name]], decreasing = TRUE),]
+  }
   columnsToReport <-c(
     "keep", "specMS2", "specMS3.1", "specMS3.2", "Decoy", "groundTruth",
     "xlinkedResPair", "xlinkedProtPair", "xlinkedModulPair",
@@ -305,7 +330,11 @@ formatXLTable <- function(datTab, msviewer=F, extraCols=NULL) {
     "Peptide.1", "Peptide.2", "numCSM", "numURP",
     "Fraction", "RT", "MSMS.Info", "Instrument", "id", "experiment", "Manual.Inspection"
   )
+  if (!is.null(classifier.name)) {
+    columnsToReport <- c(columnsToReport, classifier.name)
+  }
   if (!is.null(extraCols)) columnsToReport <- c(columnsToReport, extraCols)
+  columnsToReport <- unique(columnsToReport)
   datTab <- datTab %>% select(any_of(columnsToReport))
   if ("Protein.1" %in% names(datTab) & "Protein.2" %in% names(datTab)) {
     datTab <- datTab %>%
@@ -376,6 +405,30 @@ formatXLTable <- function(datTab, msviewer=F, extraCols=NULL) {
   return(datTab)
 }
 
+.resolveAvailableClassifier <- function(datTab,
+                                        requested = NULL,
+                                        stored = NULL,
+                                        caller = "This function") {
+  if (!is.data.frame(datTab)) {
+    stop(caller, " requires a data frame or touchstone_results object.",
+         call. = FALSE)
+  }
+  if (!is.null(requested)) {
+    if (!requested %in% names(datTab)) {
+      stop(
+        caller, " data have no classifier column named '", requested, "'.",
+        call. = FALSE
+      )
+    }
+    return(requested)
+  }
+  candidates <- unique(c(stored, "SVM.score", "Score.Diff"))
+  candidates <- candidates[!is.na(candidates) & nzchar(candidates)]
+  available <- candidates[candidates %in% names(datTab)]
+  if (length(available) == 0) return(NULL)
+  available[[1]]
+}
+
 #' Rescales data to plot and tabulate estimate decoy hits
 #'
 #' Called by the FDRplots function, but also useful when tabulating results.
@@ -384,11 +437,41 @@ formatXLTable <- function(datTab, msviewer=F, extraCols=NULL) {
 #' error rather than the artifically large number of decoys.
 #' @param datTab Parsed CLMS search results.
 #' @param scalingFactor The decoy scaling factor
+#' @param seed Integer seed used for reproducible decoy downsampling. Use
+#'   `NULL` for stochastic sampling. The caller's random-number state is
+#'   restored when the function finishes.
 #'
 #' @returns A data frame
 #' @export
 #'
-deScaler <- function(datTab, scalingFactor = the$decoyScalingFactor) {
+deScaler <- function(datTab,
+                     scalingFactor = the$decoyScalingFactor,
+                     seed = 1) {
+  if (!is.null(seed)) {
+    if (length(seed) != 1 || !is.finite(seed) || seed < 0 ||
+        seed > .Machine$integer.max ||
+        seed != as.integer(seed)) {
+      stop("seed must be NULL or one non-negative integer.", call. = FALSE)
+    }
+    seed <- as.integer(seed)
+    had.random.seed <- exists(".Random.seed", envir = globalenv(),
+                              inherits = FALSE)
+    if (had.random.seed) {
+      previous.random.seed <- get(".Random.seed", envir = globalenv(),
+                                  inherits = FALSE)
+    }
+    on.exit(
+      if (had.random.seed) {
+        assign(".Random.seed", previous.random.seed, envir = globalenv())
+      } else if (exists(".Random.seed", envir = globalenv(),
+                        inherits = FALSE)) {
+        rm(".Random.seed", envir = globalenv())
+      },
+      add = TRUE
+    )
+    set.seed(seed)
+  }
+
   datTab.t <- datTab %>% filter(.data$Decoy == "Target")
   datTab.d <- datTab %>% filter(.data$Decoy == "Decoy")
   datTab.dd <- datTab %>% filter(.data$Decoy == "DoubleDecoy")
@@ -401,14 +484,28 @@ deScaler <- function(datTab, scalingFactor = the$decoyScalingFactor) {
 }
 
 #' Plots the score distributions of decoy and target crosslinked hits.
+#' Prepared results automatically add their summarization level and the FDR
+#' calculated at the displayed threshold as a subtitle, independently of the
+#' user-supplied plot title.
 #'
-#' @param datTab Parsed CLMS search results.
-#' @param threshold Score threshold for classifying data.
-#' @param classifier Classifier to use.
-#' @param scalingFactor The decoy scaling factor.
+#' @param datTab Parsed CLMS search results, or a `touchstone_results` object
+#'   returned by [prepareCrosslinkResults()].
+#' @param threshold Score threshold for classifying data. For prepared results,
+#'   defaults to the stored thresholds.
+#' @param classifier Classifier to use. For prepared results, defaults to the
+#'   stored classifier.
+#' @param scalingFactor The decoy scaling factor. For prepared results, defaults
+#'   to the stored scaling factor.
 #' @param separateFacets Whether to plot intraProtein and interProtein hits in separate facets
 #' @param addLegend Whether to display the legend.
 #' @param title Title to plot.
+#' @param xLimits Optional numeric vector of length two giving the displayed
+#'   x-axis limits. Only observations in this interval are used for the
+#'   displayed histogram, allowing the y-axis and class drawing order to adapt
+#'   to the selected region. Bin width is still based on the complete range.
+#' @param histogramPosition Display target and decoy histograms as overlapping
+#'   layers (`"overlap"`) or side by side using [ggplot2::position_dodge2()]
+#'   (`"dodge"`).
 #'
 #' @returns A ggplot object.
 #' @export
@@ -419,28 +516,123 @@ fdrPlots <- function(datTab,
                      scalingFactor = the$decoyScalingFactor,
                      separateFacets = T,
                      addLegend = T,
-                     title = "FDR plot") {
-  classifier <- ensym(classifier)
+                     title = "FDR plot",
+                     xLimits = NULL,
+                     histogramPosition = c("overlap", "dodge")) {
+  histogramPosition <- match.arg(histogramPosition)
+  metadata.subtitle <- NULL
+  if (!is.null(xLimits) &&
+      (length(xLimits) != 2 || any(!is.finite(xLimits)) ||
+       xLimits[[1]] >= xLimits[[2]])) {
+    stop("xLimits must be NULL or two increasing finite numbers.", call. = FALSE)
+  }
+  threshold.missing <- missing(threshold)
+  classifier.missing <- missing(classifier)
+  scaling.missing <- missing(scalingFactor)
+  results.input <- inherits(datTab, "touchstone_results")
+  if (results.input) {
+    prepared <- datTab
+    level.labels <- c(
+      csm = "CSM",
+      urp = "URP",
+      `peptide-pair` = "peptide-pair",
+      `protein-pair` = "protein-pair",
+      `module-pair` = "module-pair"
+    )
+    level <- prepared$summarizationLevel
+    if (!is.null(level)) {
+      level <- if (level %in% names(level.labels)) {
+        unname(level.labels[[level]])
+      } else {
+        as.character(level)
+      }
+    }
+    metadata.parts <- character()
+    if (!is.null(level)) {
+      metadata.parts <- c(
+        metadata.parts,
+        paste0("Summarization level: ", level)
+      )
+    }
+    if (threshold.missing) {
+      threshold <- prepared$thresholds
+    }
+    if (classifier.missing && !is.null(prepared$settings$classifier)) {
+      classifier <- prepared$settings$classifier
+    }
+    if (scaling.missing) {
+      scalingFactor <- prepared$settings$scalingFactor
+    }
+    datTab <- prepared$data
+  }
+  classifier <- .classifierName(rlang::enquo(classifier))
   datTab <- ungroup(datTab)
-  minValue = datTab %>% pull({{ classifier }}) %>% min(na.rm=T)
+  if (!classifier %in% names(datTab)) {
+    stop(
+      "FDR plot data have no classifier column named '", classifier, "'.",
+      call. = FALSE
+    )
+  }
+  if (results.input) {
+    calculated.fdr <- calculateFDR(
+      datTab,
+      threshold = threshold,
+      classifier = classifier,
+      scalingFactor = scalingFactor
+    )
+    if (length(calculated.fdr) == 1 && is.finite(calculated.fdr)) {
+      metadata.parts <- c(
+        metadata.parts,
+        paste0(
+          "Calculated FDR: ",
+          formatC(100 * calculated.fdr, format = "f", digits = 2),
+          "%"
+        )
+      )
+    }
+    if (length(metadata.parts) > 0) {
+      metadata.subtitle <- paste(metadata.parts, collapse = " | ")
+    }
+  }
+  minValue = min(datTab[[classifier]], na.rm=T)
   minValue = floor(minValue)
-  maxValue = datTab %>% pull({{ classifier }}) %>% max(na.rm=T)
+  maxValue = max(datTab[[classifier]], na.rm=T)
   maxValue = ceiling(maxValue)
   stepSize = mmax((maxValue - minValue) / 100, 0.25)
   datTab <- deScaler(datTab, scalingFactor = scalingFactor)
-  decCounts <- sum(datTab$Decoy == "Decoy", na.rm = TRUE)
-  doubleCounts <- sum(datTab$Decoy == "DoubleDecoy", na.rm = TRUE)
-  decoy.levels <- if (doubleCounts > decCounts) {
-    c("Target", "DoubleDecoy", "Decoy")
-  } else {
-    c("Target", "Decoy", "DoubleDecoy")
+  if (!is.null(xLimits)) {
+    datTab <- datTab %>%
+      filter(
+        .data[[classifier]] >= xLimits[[1]],
+        .data[[classifier]] <= xLimits[[2]]
+      )
+    if (nrow(datTab) == 0) {
+      stop("No observations fall within xLimits.", call. = FALSE)
+    }
   }
+  decoy.classes <- c("Target", "Decoy", "DoubleDecoy")
+  decoy.counts <- vapply(
+    decoy.classes,
+    function(decoy.class) sum(datTab$Decoy == decoy.class, na.rm = TRUE),
+    numeric(1)
+  )
+  decoy.levels <- decoy.classes[order(-decoy.counts, seq_along(decoy.classes))]
   datTab <- datTab %>%
     mutate(Decoy = factor(as.character(.data$Decoy), levels = decoy.levels))
 
+  histogram.position <- if (histogramPosition == "dodge") {
+    ggplot2::position_dodge2(preserve = "single")
+  } else {
+    "identity"
+  }
+
   fdr.plot <- datTab %>%
-    ggplot(aes(x= {{ classifier }}, fill=.data$Decoy, alpha=.data$xlinkClass)) +
-    geom_histogram(col="black", binwidth = stepSize, position="identity")
+    ggplot(aes(x=.data[[classifier]], fill=.data$Decoy, alpha=.data$xlinkClass)) +
+    geom_histogram(
+      col = "black",
+      binwidth = stepSize,
+      position = histogram.position
+    )
   if (is(threshold, "list")) {
     if (!is.null(threshold$interThresh) & !is.null(threshold$intraThresh)) {
       fdr.plot <- fdr.plot +
@@ -460,16 +652,21 @@ fdrPlots <- function(datTab,
   }
   fdr.plot <- fdr.plot +
     theme_bw() +
-    xlim(minValue, maxValue) +
     scale_fill_manual(values=c("Target" = "lightblue",
                                "Decoy" = "salmon",
                                "DoubleDecoy" = "goldenrod1")) +
     scale_alpha_manual(values=c("interProtein" = 0.9, "intraProtein" = 0.4))
+  if (is.null(xLimits)) {
+    fdr.plot <- fdr.plot + xlim(minValue, maxValue)
+  } else {
+    fdr.plot <- fdr.plot + ggplot2::coord_cartesian(xlim = xLimits)
+  }
   if (!addLegend) {fdr.plot <- fdr.plot +
     theme(legend.position = "none") }
   fdr.plot <- fdr.plot +
-    ggtitle(title)
+    ggplot2::labs(title = title, subtitle = metadata.subtitle)
   suppressWarnings(plot(fdr.plot))
+  invisible(fdr.plot)
 }
 
 #' Histogram of precursor mass errors.
@@ -664,9 +861,9 @@ summarizeModuleData <- function(datTab, clearDiag = F, modOrder = NULL) {
     jntMods <- forcats::lvls_union(list(datTab$Module.1, datTab$Module.2))
     modsToDrop <- jntMods[! jntMods %in% modOrder]
     datTab <- datTab %>%
-      filter(Module.1 %in% modOrder, Module.2 %in% modOrder) %>%
-      mutate(Module.1 = forcats::fct_drop(Module.1, only=modsToDrop),
-             Module.2 = forcats::fct_drop(Module.2, only=modsToDrop))
+      filter(.data$Module.1 %in% modOrder, .data$Module.2 %in% modOrder) %>%
+      mutate(Module.1 = forcats::fct_drop(.data$Module.1, only=modsToDrop),
+             Module.2 = forcats::fct_drop(.data$Module.2, only=modsToDrop))
     datTab[c("Module.1", "Module.2")] <- datTab %>%
       select(.data$Module.1, .data$Module.2) %>%
       as.list() %>%
@@ -764,14 +961,44 @@ clearAboveDiag <- function(sqMatrix) {
 #' see Combe et al, MCP 2015.
 # 'https://doi.org/10.1074/mcp.O114.042259
 #'
-#' @param datTab Parsed CLMS search results.
+#' @param datTab Parsed CLMS search results or a `touchstone_results` object.
+#' @param flavor Output column naming convention: `"xiNet"` or `"xiView"`.
+#' @param classifier Score column exported as `Score`. When omitted, the
+#'   classifier stored in a `touchstone_results` object is used, followed by
+#'   `SVM.score` and then `Score.Diff` when available.
 #'
 #' @returns A data frame
 #' @export
 #'
-makeXiNetFile <- function(datTab, flavor = "xiNet") {
+makeXiNetFile <- function(datTab, flavor = "xiNet", classifier = NULL) {
+  classifier.supplied <- !missing(classifier) && !is.null(classifier)
+  classifier.name <- if (classifier.supplied) {
+    .classifierName(rlang::enquo(classifier))
+  } else {
+    NULL
+  }
+  stored.classifier <- NULL
+  if (inherits(datTab, "touchstone_results")) {
+    stored.classifier <- datTab$settings$classifier
+    datTab <- datTab$data
+  }
+  classifier.name <- .resolveAvailableClassifier(
+    datTab,
+    requested = classifier.name,
+    stored = stored.classifier,
+    caller = "makeXiNetFile"
+  )
+  if (is.null(classifier.name)) {
+    stop(
+      "makeXiNetFile data must contain SVM.score, Score.Diff, or a supplied classifier.",
+      call. = FALSE
+    )
+  }
   datTab <- datTab %>%
-    select(.data$SVM.score, .data$Acc.1, .data$Acc.2, .data$XLink.AA.1, .data$XLink.AA.2)
+    select(
+      dplyr::all_of(classifier.name),
+      "Acc.1", "Acc.2", "XLink.AA.1", "XLink.AA.2"
+    )
   if (flavor == "xiNet") {
     names(datTab) <- c("Score", "Protein1", "Protein2", "LinkPos1", "LinkPos2")
   } else if (flavor == "xiView") {
@@ -886,12 +1113,37 @@ moduleTilePlot <- function(datTab, threshold=-100, title="Module Plot", modBorde
 #' CLMS results, but this will only work for the most common research organisms.
 #' Otherwise the user should provide the ncbiTaxonomy code:
 #' `https://string-db.org/` under the `Oraganisms` link.
+#'
+#' Protein pairs must first be defined with [calculatePairs()]. Each unique
+#' target inter-protein pair is queried once; its score is then joined back to
+#' every corresponding input row. Unmapped accessions and pairs without a
+#' STRING interaction receive `NA` rather than stopping the analysis.
 #' @param datTab Parsed CLMS search results.
 #' @param ncbiTaxonomyCode NCBI format species code used by string-db
 #' @returns A data frame
 #' @export
 getStringScores <- function(datTab, ncbiTaxonomyCode = NULL) {
+  required <- c("Acc.1", "Acc.2", "xlinkClass", "Decoy", "xlinkedProtPair")
+  missing <- setdiff(required, names(datTab))
+  if (length(missing) > 0) {
+    stop(
+      "getStringScores() requires column(s): ",
+      paste(missing, collapse = ", "),
+      ". Run calculatePairs() before querying STRING.",
+      call. = FALSE
+    )
+  }
   if (is.null(ncbiTaxonomyCode)) {
+    auto.required <- c("Score.Diff", "Species.1")
+    auto.missing <- setdiff(auto.required, names(datTab))
+    if (length(auto.missing) > 0) {
+      stop(
+        "Automatic organism detection requires column(s): ",
+        paste(auto.missing, collapse = ", "),
+        ". Supply ncbiTaxonomyCode explicitly.",
+        call. = FALSE
+      )
+    }
     primarySpecies <- datTab %>%
       removeDecoys() %>%
       filter(.data$Score.Diff > 5) %>%
@@ -899,56 +1151,123 @@ getStringScores <- function(datTab, ncbiTaxonomyCode = NULL) {
       arrange(desc(.data$n)) %>%
       slice(1) %>%
       pull(.data$Species.1)
-    tryCatch({
-      if (is.null(ncbiTaxonomyCode)) {
-        ncbiTaxonomyCode <- case_when(
-          primarySpecies == "HUMAN" ~ 9606,
-          primarySpecies == "MOUSE" ~ 10090,
-          primarySpecies == "RAT" ~ 10116,
-          primarySpecies == "ECOLI" ~ 511145,
-          primarySpecies == "YEAST" ~ 4932,
-          primarySpecies == "DROME" ~ 7227,
-          primarySpecies == "ARATH" ~ 3702)
-      }
-      message(stringr::str_c("detected organism: ", primarySpecies, "\tncbi code:", ncbiTaxonomyCode))
-    },
-    error = function(cond) {
-      message("Unknown species, please provide the ncbi taxonomy identifier")
-      message("Original error message:")
-      message(conditionMessage(cond))
-      NA
-    })
-  }
-  string_db <- STRINGdb::STRINGdb$new(version = "12.0", network_type="full", link_data="combined_only",
-                                      species = ncbiTaxonomyCode, score_threshold = 0, input_directory = "")
-  datTab.inter <- datTab %>%
-    filter(.data$xlinkClass == "interProtein")
-  datTab.intra <- datTab %>%
-    filter(.data$xlinkClass == "intraProtein")
-  p.list.1 <- datTab.inter %>%
-    removeDecoys() %>%
-    pull(.data$Acc.1) %>%
-    as.character()
-  p.list.2 <- datTab.inter %>%
-    removeDecoys() %>%
-    pull(.data$Acc.2) %>%
-    as.character()
-  p.list <- unique(c(p.list.1, p.list.2))
-  id.map <- string_db$map(data.frame(acc = p.list), "acc", removeUnmappedRows = F)
-  datTab.intra$string.score <- NA
-  datTab.inter <- datTab.inter %>%
-    mutate(string.score = purrr::map2_dbl(.data$Acc.1, .data$Acc.2, function(x, y) {
-      String.1 <- id.map %>% filter(.data$acc == x) %>% pull(.data$STRING_id)
-      String.2 <- id.map %>% filter(.data$acc == y) %>% pull(.data$STRING_id)
-      ppi <- string_db$get_interactions(c(String.1, String.2))
-      if (length(ppi$combined_score)==0) {
-        return(NA)
-      } else {
-        return(ppi$combined_score[[1]])
-      }
-    })
+    species.codes <- c(
+      HUMAN = 9606, MOUSE = 10090, RAT = 10116, ECOLI = 511145,
+      YEAST = 4932, DROME = 7227, ARATH = 3702
     )
-  return(bind_rows(datTab.intra, datTab.inter))
+    ncbiTaxonomyCode <- unname(species.codes[primarySpecies])
+    if (length(ncbiTaxonomyCode) != 1 || is.na(ncbiTaxonomyCode)) {
+      stop(
+        "Unknown primary species '", primarySpecies,
+        "'. Supply ncbiTaxonomyCode explicitly.",
+        call. = FALSE
+      )
+    }
+    message(
+      stringr::str_c(
+        "detected organism: ", primarySpecies,
+        "\tncbi code:", ncbiTaxonomyCode
+      )
+    )
+  }
+  string_db <- STRINGdb::STRINGdb$new(
+    version = "12.0",
+    network_type = "full",
+    link_data = "combined_only",
+    species = ncbiTaxonomyCode,
+    score_threshold = 0,
+    input_directory = ""
+  )
+  .getStringScoresWithDB(datTab, string_db)
+}
+
+.getStringScoresWithDB <- function(datTab, string_db) {
+  datTab$string.score <- NULL
+  target.inter <- datTab %>%
+    filter(.data$xlinkClass == "interProtein", .data$Decoy == "Target")
+  proteins <- unique(c(
+    as.character(target.inter$Acc.1),
+    as.character(target.inter$Acc.2)
+  ))
+  proteins <- proteins[!is.na(proteins) & nzchar(proteins)]
+
+  if (length(proteins) == 0) {
+    datTab$string.score <- NA_real_
+    return(datTab)
+  }
+
+  id.map <- string_db$map(
+    data.frame(acc = proteins),
+    "acc",
+    removeUnmappedRows = FALSE
+  )
+  if (!all(c("acc", "STRING_id") %in% names(id.map))) {
+    stop("STRING mapping did not return acc and STRING_id columns.", call. = FALSE)
+  }
+  first.mapped <- function(x) {
+    x <- as.character(x)
+    x <- x[!is.na(x) & nzchar(x)]
+    if (length(x) == 0) NA_character_ else x[[1]]
+  }
+  id.lookup <- id.map %>%
+    group_by(.data$acc) %>%
+    summarize(STRING_id = first.mapped(.data$STRING_id), .groups = "drop")
+
+  pair.lookup <- target.inter %>%
+    dplyr::transmute(
+      .stringPair = as.character(.data$xlinkedProtPair),
+      Acc.1 = as.character(.data$Acc.1),
+      Acc.2 = as.character(.data$Acc.2)
+    ) %>%
+    dplyr::distinct(.data$.stringPair, .keep_all = TRUE) %>%
+    left_join(
+      rename(id.lookup, Acc.1 = "acc", STRING.1 = "STRING_id"),
+      by = "Acc.1"
+    ) %>%
+    left_join(
+      rename(id.lookup, Acc.2 = "acc", STRING.2 = "STRING_id"),
+      by = "Acc.2"
+    )
+
+  interaction.score <- function(string.1, string.2) {
+    if (is.na(string.1) || is.na(string.2)) return(NA_real_)
+    interactions <- tryCatch(
+      string_db$get_interactions(unique(c(string.1, string.2))),
+      error = function(e) NULL
+    )
+    if (is.null(interactions) ||
+        !("combined_score" %in% names(interactions)) ||
+        nrow(interactions) == 0) {
+      return(NA_real_)
+    }
+    if (all(c("from", "to") %in% names(interactions))) {
+      interactions <- interactions %>%
+        filter(
+          (.data$from == string.1 & .data$to == string.2) |
+            (.data$from == string.2 & .data$to == string.1)
+        )
+    }
+    scores <- as.numeric(interactions$combined_score)
+    scores <- scores[is.finite(scores)]
+    if (length(scores) == 0) NA_real_ else max(scores)
+  }
+
+  pair.scores <- pair.lookup %>%
+    mutate(
+      string.score = purrr::map2_dbl(
+        .data$STRING.1, .data$STRING.2, interaction.score
+      )
+    ) %>%
+    select(".stringPair", "string.score")
+
+  datTab %>%
+    mutate(
+      .stringPair = as.character(.data$xlinkedProtPair),
+      .stringRowOrder = dplyr::row_number()
+    ) %>%
+    left_join(pair.scores, by = ".stringPair") %>%
+    arrange(.data$.stringRowOrder) %>%
+    select(-c(".stringPair", ".stringRowOrder"))
 }
 
 #' Convenience function for working through the ribosome example dataset.

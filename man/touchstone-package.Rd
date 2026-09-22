@@ -4,9 +4,9 @@
 \name{touchstone-package}
 \alias{touchstone}
 \alias{touchstone-package}
-\title{touchstone: Rescoring and Classfication of Protein Prospector CLMS data}
+\title{touchstone: Rescoring and Classification of Protein Prospector CLMS Data}
 \description{
-Touchstone provides methods for automated classification of Protein Prospector Crosslinking Mass Spectrometry (CLMS) search results at a desired False Discovery Rate (FDR). CLMS results can be summarized at the CSM, residue-pair, peptide-pair, or protein-pair levels and FDR is controlled at the desired stage. Touchstone builds a Support Vector Machine (SVM) classifier for rescoring Protein Prospector output that significantly outperforms metrics present in the Prospector Search Compare report. Touchstone can read an optional Module file which enables annoation and summariziation of Macromolecular Modules (comprising multiple proteins) or Domains (regions within a protein). Furthermore the module file can contain links to high resoluton structure files (pdb/cif) to enable measumrent of Calpha-Calpha distances spanned by crosslinks.
+Provides methods for automated classification of Protein Prospector Crosslinking Mass Spectrometry (CLMS) search results at a desired False Discovery Rate (FDR). CLMS results can be summarized at the CSM, residue-pair, peptide-pair, or protein-pair levels and FDR is controlled at the desired stage. Touchstone builds a Support Vector Machine (SVM) classifier for rescoring Protein Prospector output that significantly outperforms metrics present in the Prospector Search Compare report. Touchstone can read an optional Module file which enables annotation and summarization of macromolecular modules (comprising multiple proteins) or Domains (regions within a protein). Furthermore the module file can contain links to high-resolution structure files (PDB/CIF) to enable measurement of C-alpha--C-alpha distances spanned by crosslinks.
 }
 \author{
 \strong{Maintainer}: Mike Trnka \email{mtrnka@cgl.ucsf.edu} (\href{https://orcid.org/0000-0002-8808-5146}{ORCID})

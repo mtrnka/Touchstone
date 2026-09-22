@@ -4,14 +4,26 @@
 \alias{countDecoys}
 \title{Convenience function to display the confusion matrix.}
 \usage{
-countDecoys(datTab, threshold = NULL, ...)
+countDecoys(
+  datTab,
+  threshold = NULL,
+  ...,
+  scalingFactor = the$decoyScalingFactor
+)
 }
 \arguments{
-\item{datTab}{Parsed CLMS search results.}
+\item{datTab}{Parsed CLMS search results, or a \code{touchstone_results} object
+returned by \code{\link[=prepareCrosslinkResults]{prepareCrosslinkResults()}}. For a results object, its data,
+thresholds, scaling factor, and classifier are used by default.}
 
 \item{threshold}{A list or a numeric of length 1. List must contain either \code{globalThresh} or both \code{interThresh} and \code{intraThresh} numeric elements.}
 
 \item{...}{passed down to \code{classifyDataset()}}
+
+\item{scalingFactor}{Multiple by which the decoy database is larger than the
+target database. Defaults to the value established by
+\code{\link[=setDecoyScalingFactor]{setDecoyScalingFactor()}}. Placed after \code{...} to preserve existing
+positional calls.}
 }
 \value{
 A data frame

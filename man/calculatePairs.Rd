@@ -2,16 +2,31 @@
 % Please edit documentation in R/processInput.R
 \name{calculatePairs}
 \alias{calculatePairs}
-\title{Determine residue, peptide,and protein pairs}
+\title{Determine residue, peptide, and protein pairs}
 \usage{
 calculatePairs(datTab, scalingFactor = the$decoyScalingFactor)
 }
 \arguments{
 \item{datTab}{Parsed CLMS search results.}
+
+\item{scalingFactor}{An integer describing how many times larger the decoy
+database is than the target database.}
 }
 \value{
 A data frame
 }
 \description{
-Determine residue, peptide,and protein pairs
+In addition to raw CSM and URP counts, this function calculates two
+corroborating-evidence features for classifier training. \code{CSMsupport} uses
+evidence from other CSMs assigned to the same unique residue pair, while
+\code{URPsupport} uses evidence from other unique residue pairs assigned to the
+same protein pair. The observation being scored is excluded at the relevant
+level. Each supporting observation receives a logistic weight centered at a
+Score.Diff of 15 with scale 2.5; observations below Score.Diff 5 contribute
+exactly zero. The summed support is transformed with \code{log1p()}.
+}
+\details{
+The legacy self-inclusive \code{wtCSM} and \code{wtURP} columns are retained for
+compatibility and controlled comparisons, but are not used by the new
+automatic feature profiles.
 }

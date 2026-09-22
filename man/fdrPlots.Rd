@@ -2,7 +2,10 @@
 % Please edit documentation in R/plottingAndhelper.R
 \name{fdrPlots}
 \alias{fdrPlots}
-\title{Plots the score distributions of decoy and target crosslinked hits.}
+\title{Plots the score distributions of decoy and target crosslinked hits.
+Prepared results automatically add their summarization level and the FDR
+calculated at the displayed threshold as a subtitle, independently of the
+user-supplied plot title.}
 \usage{
 fdrPlots(
   datTab,
@@ -11,27 +14,45 @@ fdrPlots(
   scalingFactor = the$decoyScalingFactor,
   separateFacets = T,
   addLegend = T,
-  title = "FDR plot"
+  title = "FDR plot",
+  xLimits = NULL,
+  histogramPosition = c("overlap", "dodge")
 )
 }
 \arguments{
-\item{datTab}{Parsed CLMS search results.}
+\item{datTab}{Parsed CLMS search results, or a \code{touchstone_results} object
+returned by \code{\link[=prepareCrosslinkResults]{prepareCrosslinkResults()}}.}
 
-\item{threshold}{Score threshold for classifying data.}
+\item{threshold}{Score threshold for classifying data. For prepared results,
+defaults to the stored thresholds.}
 
-\item{classifier}{Classifier to use.}
+\item{classifier}{Classifier to use. For prepared results, defaults to the
+stored classifier.}
 
-\item{scalingFactor}{The decoy scaling factor.}
+\item{scalingFactor}{The decoy scaling factor. For prepared results, defaults
+to the stored scaling factor.}
 
 \item{separateFacets}{Whether to plot intraProtein and interProtein hits in separate facets}
 
 \item{addLegend}{Whether to display the legend.}
 
 \item{title}{Title to plot.}
+
+\item{xLimits}{Optional numeric vector of length two giving the displayed
+x-axis limits. Only observations in this interval are used for the
+displayed histogram, allowing the y-axis and class drawing order to adapt
+to the selected region. Bin width is still based on the complete range.}
+
+\item{histogramPosition}{Display target and decoy histograms as overlapping
+layers (\code{"overlap"}) or side by side using \code{\link[ggplot2:position_dodge]{ggplot2::position_dodge2()}}
+(\code{"dodge"}).}
 }
 \value{
 A ggplot object.
 }
 \description{
 Plots the score distributions of decoy and target crosslinked hits.
+Prepared results automatically add their summarization level and the FDR
+calculated at the displayed threshold as a subtitle, independently of the
+user-supplied plot title.
 }

@@ -12,8 +12,14 @@ tuneSVM(
   scalingFactor = the$decoyScalingFactor,
   targetER = 0.01,
   sampleNo = 20000,
-  cost_values = c(0.5, 1, 5, 10),
-  gamma_values = c(0.01, 0.05, 0.1, 0.5)
+  cost_values = c(0.001, 0.01, 0.1, 1, 10),
+  gamma_values = c(0.001, 0.01, 0.05, 0.1),
+  kernels = "linear",
+  seed = 1,
+  splitBy = NULL,
+  trainingRows = NULL,
+  compact = FALSE,
+  verbose = FALSE
 )
 }
 \arguments{
@@ -23,7 +29,9 @@ tuneSVM(
 
 \item{scoreName}{Name for the new scoring function.}
 
-\item{scalingFactor}{An integer k. The multiple by which decoy DB is larger than target DB}
+\item{scalingFactor}{An integer k. The multiple by which the decoy database
+is larger than the target database. Defaults to the value established for
+the current analysis by \code{\link[=setDecoyScalingFactor]{setDecoyScalingFactor()}}.}
 
 \item{targetER}{Desired FDR for classification of CSMs}
 
@@ -31,7 +39,24 @@ tuneSVM(
 
 \item{cost_values}{Numeric vector of cost values used for hyperparameter tuning of the SVM model}
 
-\item{gamma_values}{Numeric vector of gamma values used for hyperparameter tuning of the SVM model}
+\item{gamma_values}{Numeric vector of gamma values used only for radial kernels.}
+
+\item{kernels}{Character vector of kernels to evaluate. Defaults to
+\code{"linear"}. Include \code{"radial"} for experimental comparison.}
+
+\item{seed}{Integer seed used to make cross-fitting reproducible.}
+
+\item{splitBy}{Character vector naming columns whose rows must remain together
+during cross-fitting.}
+
+\item{trainingRows}{Optional logical vector selecting rows eligible for SVM
+fitting. Every row in \code{datTab} is still scored.}
+
+\item{compact}{Retain candidate scores and audit information without
+duplicating the complete CSM and URP tables. Used by
+\code{\link[=trainCrosslinkScore]{trainCrosslinkScore()}} to reduce memory use during tuning.}
+
+\item{verbose}{Print training diagnostics.}
 }
 \value{
 A list containing all of the SVM models at different cost and gamma values.
