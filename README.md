@@ -44,6 +44,44 @@ library(touchstone)
 The example below is included with the package and can be run in a fresh
 R session after installation.
 
+## Prospector–Touchstone workflow
+
+A typical analysis moves through the following stages:
+
+1.  **Search spectra in Protein Prospector Batch-Tag.** Search target
+    and decoy protein sequences using the crosslinker, instrument, and
+    decoy-database design appropriate to the experiment.
+2.  **Prepare the Touchstone report in Search Compare.** Combine the
+    Batch-Tag results and export a crosslinked-peptide report. The
+    bundled `tstoneMS2.4.json` template requests the score, accession,
+    peptide, residue, precursor, and MS-Product-derived product-ion
+    information used by Touchstone, including annotated ions and percent
+    bond cleavage.
+3.  **Import the Search Compare table.** `readProspectorXLOutput()`
+    standardizes Prospector column names, constructs crosslink
+    identities, and calculates features needed downstream.
+4.  **Train the classifier.** `trainCrosslinkScore()` selects the
+    feature profile, training prefilter, and linear SVM model, then
+    scores every input CSM.
+5.  **Prepare a reporting level.** `prepareCrosslinkResults()`
+    summarizes the scored CSMs as CSMs, unique residue pairs, peptide
+    pairs, protein pairs, or module pairs and estimates level-specific
+    thresholds.
+6.  **Classify and polish.** `classifyCrosslinkResults()` applies
+    optional evidence-quality rules, recalculates support counts, and
+    produces the final target-and-decoy result table.
+7.  **Add module and structural information.** A Touchstone module file
+    can map accessions to complexes, subunits, domains, and structure
+    chains.
+8.  **Report, visualize, and export.** Touchstone provides FDR, pair,
+    module, and distance plots; compact result tables; MS-Viewer and
+    xiView/xiNet output; ChimeraX pseudobonds; and optional STRING-DB
+    interaction scores.
+
+The statistical classifier and reporting level are deliberately
+separate: one CSM score can support several independently thresholded
+result tables.
+
 ## Worked example: DSSO-crosslinked rabbit 80S ribosome
 
 The example is a stepped-HCD MS2 analysis of rabbit 80S ribosomes
@@ -235,38 +273,51 @@ ribo_report$polishingAudit
 #> 1 minIons   3                                        58987 32576   26411 TRUE    <NA>
 #> 2 threshold intraThresh=-0.18368, interThresh=1.168  32576  3347   29229 TRUE    <NA>
 
-ribo_target_summary <- ribo_report$data |>
-  dplyr::filter(.data$Decoy == "Target") |>
-  dplyr::count(.data$xlinkClass, name = "target_URPs")
+ribo_classification_summary <- countDecoys(ribo_report)
 
-ribo_target_summary
+ribo_classification_summary
+#> # A tibble: 2 × 5
+#> # Groups:   xlinkClass, Decoy [2]
+#>   xlinkClass   Decoy Target DoubleDecoy   FDR
+#>   <chr>        <int>  <int>       <dbl> <dbl>
+#> 1 interProtein     1    140          NA  0.71
+#> 2 intraProtein     4    368          NA  1.09
+ribo_report$fdrByClass
 #> # A tibble: 2 × 2
-#>   xlinkClass   target_URPs
-#>   <chr>              <int>
-#> 1 interProtein         140
-#> 2 intraProtein         368
+#>   xlinkClass       FDR
+#>   <chr>          <dbl>
+#> 1 interProtein 0.0107
+#> 2 intraProtein 0.00995
 ```
 
-This analysis reports 140 interprotein and 368 intraprotein target URPs
-at the modeled 1% thresholds after polishing.
+`countDecoys()` provides the target and scaling-adjusted decoy count
+summary. The exact class-specific FDR calculation is retained in
+`fdrByClass`. This analysis reports 140 interprotein and 368
+intraprotein target URPs at the modeled 1% thresholds after polishing.
 
 The final target-only table is obtained without storing another
 permanent copy inside the result object:
 
 ``` r
 ribo_targets <- removeDecoys(ribo_report$data)
-ribo_targets[1:5, c(
+ribo_table <- formatXLTable(ribo_targets)
+ribo_table[1:5, c(
   "xlinkedResPair", "xlinkClass", "SVM.score", "numCSM"
 )]
 #> # A tibble: 5 × 4
-#>   xlinkedResPair           xlinkClass   SVM.score numCSM
-#>   <fct>                    <chr>            <dbl>  <int>
-#> 1 0.A0A5F9D2E6::139.B7NZS8 interProtein    1.67        3
-#> 2 0.G1SGX4::105.G1SGX4     intraProtein    1.11        3
-#> 3 0.G1SGX4::90.G1SGX4      intraProtein    0.323       2
-#> 4 0.G1SGX4::98.G1SGX4      intraProtein    2.03        4
-#> 5 0.G1SKF7::10.G1SKF7      intraProtein   -0.0520      1
+#>   xlinkedResPair            xlinkClass   SVM.score numCSM
+#>   <fct>                     <fct>            <dbl>  <int>
+#> 1 113.G1T6D1::75.G1T6D1     intraProtein      3.76    120
+#> 2 119.G1TM55::46.G1TM55     intraProtein      3.65     74
+#> 3 38.G1TUB8::67.G1TUB8      intraProtein      3.44     84
+#> 4 139.B7NZS8::68.A0A5F9D2E6 interProtein      3.36     58
+#> 5 42.G1SP51::78.G1SP51      intraProtein      3.33     11
 ```
+
+`formatXLTable()` removes most internal columns, arranges rows by the
+active classifier, and retains commonly used identification, score,
+annotation, and support columns. Supply `extraCols` to preserve
+additional experimental fields.
 
 More stringent policies can be requested explicitly. For example:
 
@@ -308,18 +359,61 @@ This separation is important: the CSM score is shared, but the FDR
 threshold and supporting-evidence counts belong to the requested
 reporting level.
 
-### 7. Optional structural annotation and export
+### 7. Add module and structural annotations
 
 The bundled module file maps ribosomal proteins to the 40S and 60S
 subunits and to the rabbit 80S structure [PDB
-6HCJ](https://www.rcsb.org/structure/6HCJ). Structural annotation may
-download coordinate files, so it is not executed while building this
-README:
+6HCJ](https://www.rcsb.org/structure/6HCJ). Module assignment itself is
+local and can be used without a structure:
 
 ``` r
+ribo_module_file <- readModuleFile(
+  touchstone_example("rRibo_modfile_uniprot.txt")
+)
+
+ribo_modules <- assignModules(ribo_report$data, ribo_module_file)
+```
+
+`moduleTilePlot()` summarizes the supporting CSM count between modules.
+Here the ribosome module definition contains two modules, corresponding
+to the small and large subunits:
+
+``` r
+moduleTilePlot(
+  ribo_modules,
+  threshold = -Inf,
+  title = "Rabbit 80S ribosome",
+  clearDiag = TRUE
+)
+```
+
+<img src="man/figures/README-module-tile-1.png" alt="" width="100%" />
+
+`pairPlot()` displays residue positions for individual protein pairs,
+with point size representing CSM support. A complete 77-protein ribosome
+grid is too dense for this README, but the same function is useful after
+selecting proteins or modules of interest:
+
+``` r
+selected_pairs <- ribo_modules |>
+  dplyr::filter(Acc.1 %in% proteins_of_interest,
+                Acc.2 %in% proteins_of_interest) |>
+  removeDecoys()
+
+pairPlot(selected_pairs, modTab = ribo_module_file)
+```
+
+`processModuleFile()` combines module assignment with structure mapping
+and distance calculation. If the coordinate file is not found locally,
+Touchstone downloads it from the Protein Data Bank. This example
+therefore requires an internet connection when first run:
+
+``` r
+set.seed(1)
 ribo_structural <- processModuleFile(
   ribo_report$data,
-  touchstone_example("rRibo_modfile_uniprot.txt")
+  touchstone_example("rRibo_modfile_uniprot.txt"),
+  pdbFileDir = tempdir()
 )
 
 distancePlot2(
@@ -328,16 +422,70 @@ distancePlot2(
 )
 ```
 
-Results can be formatted for downstream inspection, including MS-Viewer:
+<img src="man/figures/README-structural-validation-1.png" alt="Crosslink distance distribution for the rabbit ribosome example" width="100%" />
+
+The upper panel shows experimentally observed crosslink distances; the
+lower panel shows randomly sampled lysine–lysine distances from the same
+structure. The dashed line marks the chosen 35 Å distance threshold.
+
+### 8. Export and external interaction evidence
+
+The compact table can be renamed for MS-Viewer and written as a
+tab-delimited file:
 
 ``` r
 msviewer_table <- formatXLTable(ribo_targets, msviewer = TRUE)
 readr::write_tsv(msviewer_table, "ribosome_urp_msviewer.txt")
 ```
 
-MS-Viewer additionally requires the corresponding peak list; for large
-raw files, a filtered peak list containing only reported spectra is
-usually more practical.
+MS-Viewer requires both this result table and the corresponding peak
+list. For large experiments, the practical workflow is to create a
+filtered peak list containing only spectra referenced by the reported
+matches, rather than upload the complete peak list.
+
+xiView and xiNet use a smaller five-column crosslink table. The score
+column is inherited from a `touchstone_results` object or can be
+supplied explicitly:
+
+``` r
+xiview_table <- makeXiNetFile(
+  ribo_targets,
+  flavor = "xiView",
+  classifier = "SVM.score"
+)
+readr::write_csv(xiview_table, "ribosome_xiview.csv")
+```
+
+After structural annotation, Touchstone can write a ChimeraX pseudobond
+file. Links at or below the distance threshold and violations are
+assigned different colors:
+
+``` r
+makeChimeraXpbondFile(
+  removeDecoys(ribo_structural),
+  threshold = 35,
+  model.id = "#1",
+  out.file = "ribosome_6hcj.pb"
+)
+```
+
+For protein-pair analysis, `getStringScores()` adds STRING-DB
+interaction scores as orthogonal evidence. It requires the optional
+`STRINGdb` package and network access and is not part of the FDR
+calculation:
+
+``` r
+ribo_protein_pairs <- prepareCrosslinkResults(
+  ribo_training,
+  summarizationLevel = "protein-pair"
+) |>
+  classifyCrosslinkResults()
+
+ribo_protein_pairs_with_string <- getStringScores(
+  ribo_protein_pairs$data,
+  ncbiTaxonomyCode = 9986
+)
+```
 
 ## Scope and development status
 
