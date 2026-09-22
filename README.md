@@ -1,411 +1,362 @@
-Touchstone: CLMS re-scoring, classification, biological inference and
-more for Protein Prospector crosslink searches
+Touchstone
 ================
 
-<!-- README.md is generated from README.Rmd. Please edit that file -->
+<!-- README.md is generated from README.Rmd. Please edit README.Rmd. -->
 
-## Protein Prospector - Touchstone CLMS pipeline
+## Crosslinking mass-spectrometry rescoring and reporting
 
-<!-- badges: start -->
+Touchstone is an R package for rescoring and classifying crosslinking
+mass-spectrometry (CLMS/XL-MS) results from [Protein
+Prospector](https://prospector.ucsf.edu/prospector/mshome.htm). It
+builds a support-vector-machine score from Search Compare output,
+estimates separate intra- and interprotein false-discovery-rate (FDR)
+thresholds, and prepares results at several proteomics summarization
+levels.
 
-<!-- badges: end -->
+The current workflow supports:
 
-The Touchstone library exists to extend and improve the functionality of
-<a href="https://prospector.ucsf.edu/prospector/mshome.htm"
-target="_blank">Protein Prospector</a> for Crosslinking Mass
-Spectrometry (Trnka et al. 2014). Touchstone re-scores Prospector CLMS
-results using a Support Vector Machine (SVM) classifier that does a
-better job discriminating between correct and incorrect crosslinks than
-the internal Prospector scores.
+- crosslinked spectrum matches (`"csm"`);
+- unique residue pairs (`"urp"`);
+- peptide pairs (`"peptide-pair"`);
+- protein pairs (`"protein-pair"`); and
+- user-defined module pairs (`"module-pair"`).
 
-Touchstone allows the user to classify datasets at a desired False
-Discovery Rate (FDR) threshold at various summarization levels:
-Crosslinked Spectral Matches (CSMs), Unique Residue Pairs (URPs), or
-Protein Pairs (PPs). Touchstone’s FDR assessments are highly consistent
-with ‘ground truth’ error rates assessed by various benchmarking
-datasets (Beveridge et al. 2020; Matzinger et al. 2022; Fischer et al.
-2025).
+Model fitting, statistical classification, and optional evidence-quality
+polishing are kept separate. Linear SVMs are the conservative default,
+and the recommended score averages three reproducible cross-fitted
+estimates. The Score.Diff training prefilter, feature profile, and SVM
+cost can be selected automatically or fixed for a prespecified analysis.
 
-Additionally Touchstone contains features to help with dataset
-validiation by measuring euclidean distances of crosslinks against
-high-res structure files, or by querying
-<a href="https://string-db.org/" target="_blank">STRING-db</a> for
-String Scores of putative protein interactions.
-
-To aid with biological inference, Touchstone can optionally classify
-data into “Modules” which can designate either domains within a larger
-polypeptide or stable assemblies of multiple polypeptides (or both).
-There are convenience functions to export data to
-<a href="https://crosslinkviewer.org/" target="_blank">XiNet</a> and
-some internal plotting functions for quantitating CSMs across proteins
-or modules.
-
-Touchstone is an R package that that I developed to address my own needs
-when analyzing CLMS datasets searched with Prospector, as a project
-scientist supporting numerous <a
-href="https://scholar.google.com/citations?hl=en&amp;user=Gae1r_AAAAAJ&amp;view_op=list_works&amp;sortby=pubdate"
-target="_blank">projects</a> over the last decade or so. It is therefore
-a bit niche and wasn’t developed with a wide user base in mind. Nor am I
-a software developer, so it is rough around the edges. I am sharing it
-here because it might be helpful to some users, but if you are looking
-for a smooth user experience that doesn’t require tinkering in R, you
-might be better served by other CLMS database search and re-scoring
-software.
-
-I am currently only distributing a version here that is run in an R
-command line environment, typically in
-<a href="https://posit.co/download/rstudio-desktop/"
-target="_blank">RStudio</a>. A demo version of a graphical interface
-(built in <a href="https://shiny.posit.co/" target="_blank">Shiny</a>)
-exists and is under development for eventual integration with Protein
-Prospector. This will be more accesible to a wider user-base. The
-eventual goal is to make Prospector CLMS searches more widely accessible
-to the research community.
-
-The graphical demo version can be accessed at
-<a href="https://prospts.shinyapps.io/tstoneapp/"
-target="_blank">shinyapps.io</a>
-
-Additional instructions for the graphical demo are <a
-href="https://msf.ucsf.edu/mike/crosslinkingClass/dataset_summary.html"
-target="_blank">here</a>
-
-The rest of this mini-vignette will refer to running Touchstone inside
-of RStudio.
+Touchstone was developed for Protein Prospector CLMS workflows (Trnka et
+al. 2014). It currently assumes familiarity with R and with the
+decoy-search design used to generate the Prospector results.
 
 ## Installation
 
-The touchstone library is distributed on
-<a href="https://github.com/" target="_blank">GitHub</a>. This demo also
-uses the tidyverse ecosystem extensively. Install with:
+Touchstone is currently installed from GitHub:
 
 ``` r
-demo_pkgs <- c("devtools", "tidyverse")
-pks_to_install <- demo_pkgs[!demo_pkgs %in% installed.packages()]
-if (length(pks_to_install) > 0) install.packages(pks_to_install)
-lapply(demo_pkgs, library, character.only = TRUE)
-#> Warning: package 'devtools' was built under R version 4.4.3
-#> Warning: package 'ggplot2' was built under R version 4.4.3
-#> Warning: package 'tibble' was built under R version 4.4.3
-#> Warning: package 'tidyr' was built under R version 4.4.3
-#> Warning: package 'readr' was built under R version 4.4.3
-#> Warning: package 'purrr' was built under R version 4.4.3
-#> Warning: package 'dplyr' was built under R version 4.4.3
-#> Warning: package 'lubridate' was built under R version 4.4.3
-
-devtools::install_github("mtrnka/Touchstone")
-#> Warning: `install_github()` was deprecated in devtools 2.5.0.
-#> ℹ Please use pak::pak("user/repo") instead.
-#> This warning is displayed once per session.
-#> Call `lifecycle::last_lifecycle_warnings()` to see where this warning was
-#> generated.
-#> Warning: unable to access index for repository https://bioconductor.org/packages/3.18/bioc/bin/macosx/big-sur-arm64/contrib/4.4:
-#>   cannot open URL 'https://bioconductor.org/packages/3.18/bioc/bin/macosx/big-sur-arm64/contrib/4.4/PACKAGES'
-#> Warning: unable to access index for repository https://bioconductor.org/packages/3.18/data/annotation/bin/macosx/big-sur-arm64/contrib/4.4:
-#>   cannot open URL 'https://bioconductor.org/packages/3.18/data/annotation/bin/macosx/big-sur-arm64/contrib/4.4/PACKAGES'
-#> Warning: unable to access index for repository https://bioconductor.org/packages/3.18/data/experiment/bin/macosx/big-sur-arm64/contrib/4.4:
-#>   cannot open URL 'https://bioconductor.org/packages/3.18/data/experiment/bin/macosx/big-sur-arm64/contrib/4.4/PACKAGES'
-#> Warning: unable to access index for repository https://bioconductor.org/packages/3.18/workflows/bin/macosx/big-sur-arm64/contrib/4.4:
-#>   cannot open URL 'https://bioconductor.org/packages/3.18/workflows/bin/macosx/big-sur-arm64/contrib/4.4/PACKAGES'
-#> Warning: unable to access index for repository https://bioconductor.org/packages/3.18/books/bin/macosx/big-sur-arm64/contrib/4.4:
-#>   cannot open URL 'https://bioconductor.org/packages/3.18/books/bin/macosx/big-sur-arm64/contrib/4.4/PACKAGES'
+install.packages("remotes")
+remotes::install_github("mtrnka/Touchstone")
 library(touchstone)
 ```
 
-## 80S Ribosome data acquired by MS2.HCD.
+The example below is included with the package and can be run in a fresh
+R session after installation.
 
-80S ribosome was produced using a rabbit reticulocyte cell free
-expression system. 80S ribosomes were crosslinked with the cleavable
-reagent DSSO (Kao et al. 2011). I use this system for method development
-and optimization of CLMS workflows. There is a high-res EM structure of
-the complex which can be helpful in determining if the crosslinked are
-assigned correctly or not, <a href="https://www.rcsb.org/structure/6hcj"
-target="_blank">pdb:6HCJ</a>.
+## Worked example: DSSO-crosslinked rabbit 80S ribosome
 
-<figure>
-<img src="https://cdn.rcsb.org/images/structures/6hcj_assembly-1.jpeg"
-style="width:30.0%" alt="cryoEM structure of Rabbit 80S ribosome" />
-<figcaption aria-hidden="true">cryoEM structure of Rabbit 80S
-ribosome</figcaption>
-</figure>
+The example is a stepped-HCD MS2 analysis of rabbit 80S ribosomes
+produced in a reticulocyte cell-free expression system and crosslinked
+with DSSO (Kao et al. 2011). The Search Compare table contains eight
+LC-MS runs covering four size-exclusion-chromatography fractions and two
+replicate series. The search database contains 77 ribosomal proteins
+plus randomized decoy sequences that are ten times longer than their
+corresponding targets.
 
-The example dataset included with Touchstone is from the 80S sample,
-split across 4 SEC fractions, each analyzed using a stepped-HCD MS2
-acquisition cycle. Data were searched for crosslinks using Protein
-Prospector program *Batch Tag*, against a protien database containing 77
-ribosome sequences alongside a decoy database where each of the 77
-target was randomized as well as 10x longer than the target sequences.
+### 1. Read the Search Compare output
 
-Touchstone expects unclassified search results with certain parameters
-included in the report. The recommended Search Compare Paramters are
-inlcuded as an example file:
+The decoy scaling factor must match the database used for the Prospector
+search. An incorrect value changes every FDR calculation. This example
+uses a 10-fold decoy database:
 
 ``` r
+library(touchstone)
 
-# install.packages("jsonlite")
-tstone_sc_params <- touchstone_example("tstoneMS2.4.json") %>% 
-  jsonlite::read_json()
-tstone_sc_params
-```
-
-For CLMS of defined protein compleses with 2-200 subunits, I typically
-use a decoy database that is either 5x or 10x larger than the target
-database. This does a better job of modeling the distribution of
-incorrect hits. Touchstone has a parameter called the
-`decoy scaling factor` to adjust the math for this (it defaults to 1x).
-The 80S ribosome search usesa decoy databse in which each decoy protein
-is 10x longer than the corresponding target. If you don’t use a value
-that matches the databse search conditions everything will be wrong. Set
-the appropriate value for the scaling factor:
-
-``` r
 setDecoyScalingFactor(10)
+
+ribo <- readProspectorXLOutput(
+  touchstone_example("M6.sthcd_scout.txt"),
+  minPepLen = 4,
+  minIons = 0
+)
+
+ribo_target_csms <- removeDecoys(ribo)
+
+c(
+  CSM_candidates = nrow(ribo),
+  target_accessions = length(unique(c(
+    ribo_target_csms$Acc.1,
+    ribo_target_csms$Acc.2
+  )))
+)
+#>    CSM_candidates target_accessions
+#>             58987                77
 ```
 
-After setting the decoy scaling factor (if needed), read the *Search
-Compare* output into Touchstone restricting results to peptides with at
-least 4 residues:
+`minIons = 0` deliberately avoids filtering product-ion evidence during
+import. The evidence-quality rule is applied later, after model fitting.
+This keeps the statistical training decision distinct from the reporting
+policy.
+
+The recommended Prospector Search Compare parameter template can be
+located with:
 
 ``` r
-pathToDemoFile <- touchstone_example("M6.sthcd_scout.txt")
-ribo.xl <- readProspectorXLOutput(pathToDemoFile, minPepLen = 4, minIons = 0)
+search_compare_template <- touchstone_example("tstoneMS2.4.json")
+basename(search_compare_template)
+#> [1] "tstoneMS2.4.json"
 ```
 
-The crosslinked peptides were fractionated by size-exclusion
-chromatography (SEC) and two technical replicates of each fraction were
-run. The code below, assigns the SEC fraction and replicate numbers to
-the data:
+Some evidence-polishing features depend on optional MS-Product-derived
+columns. Touchstone continues without a requested optional field and
+records that the corresponding polishing rule was unavailable.
+
+### 2. Train the crosslink score
+
+`trainCrosslinkScore()` chooses a complexity-appropriate feature
+profile, optionally selects a training-only Score.Diff threshold,
+evaluates the requested hyperparameters once, and then averages three
+fits of the selected model. All input CSMs are scored, including rows
+excluded from the training subset.
+
+For a completely automatic analysis, use:
 
 ``` r
-ribo.fractions <- sort(unique(ribo.xl$Fraction))
-ribo.xl <- ribo.xl %>%
-  mutate(
-    sample = case_when(
-      Fraction %in% ribo.fractions[1:4] ~ "rep 1",
-      Fraction %in% ribo.fractions[5:8] ~ "rep 2"
-    ),
-    sec_fraction = case_when(
-      Fraction %in% ribo.fractions[c(1,5)] ~ "A6",
-      Fraction %in% ribo.fractions[c(2,6)] ~ "A5",
-      Fraction %in% ribo.fractions[c(3,7)] ~ "A4",
-      Fraction %in% ribo.fractions[c(4,8)] ~ "A3",
-    ))
+ribo_training <- trainCrosslinkScore(ribo, targetER = 0.01)
 ```
 
-The main Touchstone function is `trainCrosslinkScore()`. Running this
-will re-score prospector CLMS results by building an SVM-score.
-`trainCrosslinkScore()` automatically handles hyper-paramater
-optimization, feature selection, and data pre-filtering. It returns a
-list with CSMs and URPs along with score thresholds that will classify
-data at the target error rates. Finally it returns some information
-about the features, hyperparameter values, and prefilter values selected
-in the final model.
+The fully automatic run on this bundled dataset selects a Score.Diff
+prefilter of `0` and linear cost `0.001`. The executable README pins
+those validated choices to avoid repeating the exploratory prefilter and
+cost grids every time the documentation is rebuilt:
 
 ``` r
-ribo.tune <- trainCrosslinkScore(ribo.xl, targetER = 0.01)
+ribo_training <- trainCrosslinkScore(
+  ribo,
+  targetER = 0.01,
+  scoreDiffPrefilter = 0,
+  cost_values = 0.001
+)
+
+ribo_training
+#> Touchstone training result: recommended linear candidate 1.
+#> Decoy scaling factor: 10.
+#> Complexity profile: medium (77 supported proteins; 56 with intra-protein support; 77 raw target accessions).
+#> Features: Score.Diff, percMatched, massError, z, CSMsupport, xlinkClass, Perc.Bond.Cleavage.1, Perc.Bond.Cleavage.2.
+#> Recommended scores average 3 cross-fitted estimates.
+#> Selected Score.Diff prefilter: 0.
+#> # A tibble: 1 × 17
+#>   index kernel  cost gamma interHits intraHits achievedFDR interCorrelation intraCorrelation
+#>   <int> <chr>  <dbl> <dbl>     <dbl>     <dbl>       <dbl>            <dbl>            <dbl>
+#> 1     1 linear 0.001    NA       139       374      0.0107            0.564            0.574
+#> # ℹ 8 more variables: interTailCorrelation <dbl>, intraTailCorrelation <dbl>,
+#> #   worstClassCorrelation <dbl>, minimumCorrelationRequired <dbl>, selectionBasis <chr>,
+#> #   eligible <lgl>, recommended <lgl>, recommendedRadial <lgl>
+#> Full candidate audit: $candidates
 ```
 
-<img src="man/figures/README-tuning-1.png" alt="" width="100%" /><img src="man/figures/README-tuning-2.png" alt="" width="100%" />
+The printed result reports the chosen complexity profile, features,
+prefilter, decoy scaling factor, ensemble size, and candidate audit. The
+complete audit is available as `ribo_training$candidates`, and the
+shared settings are in `ribo_training$settings`.
 
-    #>    index cost gamma  interInt interHits
-    #> 1      8    5  0.10 1718.7333      1174
-    #> 2      6   10  0.05 1716.3333      1071
-    #> 3      9   10  0.10 1691.6000      1098
-    #> 4      5    5  0.05 1681.0426       985
-    #> 5      7    1  0.10 1665.9792      1040
-    #> 6      4    1  0.05 1505.6545       803
-    #> 7      3   10  0.01 1361.1351       524
-    #> 8      2    5  0.01 1327.5263       544
-    #> 9     10    1 23.00  807.4706       299
-    #> 10    11    5 23.00  768.4706       293
-    #> 11    12   10 23.00  749.6842       294
-    #> 12     1    1  0.01  711.1961       260
+### 3. Inspect score behavior
 
-<img src="man/figures/README-tuning-3.png" alt="" width="100%" />
-
-We can now look at URPs classified by touchstone at the target FDR of
-1%:
+The trained score should retain a sensible within-class relationship
+with the original Prospector Score.Diff. This diagnostic is particularly
+important when testing flexible radial kernels or new features:
 
 ``` r
-
-names(ribo.tune)
-#> [1] "CSMs"         "URPs"         "CSM.thresh"   "URP.thresh"   "model.params"
-
-ribo.csm <- ribo.tune$CSMs
-ribo.csm.1 <- ribo.tune$CSM.thresh
-
-ribo.urp <- ribo.tune$URPs
-ribo.urp.1 <- ribo.tune$URP.thresh
-
-fdrPlots(ribo.urp, threshold=ribo.urp.1)
-#> Warning: Using `size` aesthetic for lines was deprecated in ggplot2 3.4.0.
-#> ℹ Please use `linewidth` instead.
-#> ℹ The deprecated feature was likely used in the touchstone package.
-#>   Please report the issue to the authors.
-#> This warning is displayed once per session.
-#> Call `lifecycle::last_lifecycle_warnings()` to see where this warning was
-#> generated.
+plotScoreCorrelation(
+  ribo_training,
+  alpha = 0.18,
+  pointSize = 0.45
+)
 ```
 
-<img src="man/figures/README-assign_svm-1.png" alt="" width="100%" />
+<img src="man/figures/README-score-correlation-1.png" alt="" width="100%" />
+
+The recommended linear model is stored in `ribo_training$recommended`.
+Radial models are not trained unless explicitly requested with
+`kernels = c("linear", "radial")`.
+
+### 4. Prepare results at the URP level
+
+Training produces one CSM-level score. Reporting thresholds are
+estimated separately at each summarization level. Here the complete
+scored CSM table is summarized as unique residue pairs:
 
 ``` r
-calculateFDR(ribo.urp, threshold=ribo.urp.1)
-#> [1] 0.009386701
+ribo_urp <- prepareCrosslinkResults(
+  ribo_training,
+  summarizationLevel = "urp"
+)
 
-ribo.urp %>%
-  countDecoys(threshold=ribo.urp.1)
-#> # A tibble: 2 × 4
-#> # Groups:   xlinkClass, Decoy [2]
-#>   xlinkClass   DoubleDecoy Decoy Target
-#>   <chr>              <int> <int>  <int>
-#> 1 interProtein           1     9   1174
-#> 2 intraProtein          NA     3    375
-
-svm.urp.inter <- ribo.urp %>% 
-  countDecoys(threshold = ribo.urp.1) %>% 
-  filter(xlinkClass=="interProtein") %>% 
-  pull(Target)
+ribo_urp$thresholds
+#> $intraThresh
+#> [1] -0.092936
+#>
+#> $interThresh
+#> [1] 1.186
+#>
+#> attr(,"thresholdMethods")
+#>     intraProtein     interProtein
+#>      "empirical" "logistic-model"
+#> attr(,"targetFDRReached")
+#> intraProtein interProtein
+#>         TRUE         TRUE
 ```
 
-So, at 1% FDR for unique-residue-pairs, Touchstone finds 1174
-inter-protein cross-links. In contrast, we can ask Touchstone to
-classify the data using Prospector’s `Score.Diff` parameter:
+The prepared object retains the complete target-and-decoy URP table, its
+CSM source, thresholds, settings, and classification summaries. It can
+therefore be plotted before classification:
 
 ``` r
-
-ribo.urp.sd.1 <- findSeparateThresholds(ribo.urp, classifier="Score.Diff", targetER=0.01)
-
-fdrPlots(ribo.urp, threshold=ribo.urp.sd.1, classifier="Score.Diff")
+fdrPlots(
+  ribo_urp,
+  xLimits = c(-1.5, 2.5),
+  title = "Rabbit 80S ribosome"
+)
 ```
 
-<img src="man/figures/README-assign_score_diff-1.png" alt="" width="100%" />
+<img src="man/figures/README-plot-urp-fdr-1.png" alt="" width="100%" />
+
+The interprotein FDR curve is modeled because sparse decoys can make the
+raw empirical curve jagged. The requested FDR is an estimate, not a
+requirement that every raw count-based diagnostic fall below a hard
+maximum.
+
+### 5. Classify and polish the results
+
+`classifyCrosslinkResults()` applies the evidence policy to the scored
+CSMs, re-estimates the reporting-level thresholds, and recalculates
+`numCSM` and `numURP` from evidence that passes the final policy. By
+default, each peptide must have at least three distinct annotated
+product-ion cleavage positions when those annotations are available:
 
 ``` r
-calculateFDR(ribo.urp, threshold=ribo.urp.sd.1, classifier="Score.Diff")
-#> [1] 0.01150442
+ribo_report <- classifyCrosslinkResults(ribo_urp)
 
-ribo.urp %>%
-  countDecoys(threshold=ribo.urp.sd.1, classifier="Score.Diff")
-#> # A tibble: 2 × 3
-#> # Groups:   xlinkClass, Decoy [2]
-#>   xlinkClass   Target Decoy
-#>   <chr>         <int> <int>
-#> 1 interProtein      5    NA
-#> 2 intraProtein    108     1
+ribo_report$polishingAudit
+#> # A tibble: 2 × 7
+#>   rule      value                                   before after removed applied reason
+#>   <chr>     <chr>                                    <int> <int>   <int> <lgl>   <chr>
+#> 1 minIons   3                                        58987 32576   26411 TRUE    <NA>
+#> 2 threshold intraThresh=-0.18368, interThresh=1.168  32576  3347   29229 TRUE    <NA>
 
-sd.urp.inter <- ribo.urp %>% 
-  countDecoys(threshold = ribo.urp.sd.1, classifier="Score.Diff") %>% 
-  filter(xlinkClass=="interProtein") %>% 
-  pull(Target)
+ribo_target_summary <- ribo_report$data |>
+  dplyr::filter(.data$Decoy == "Target") |>
+  dplyr::count(.data$xlinkClass, name = "target_URPs")
+
+ribo_target_summary
+#> # A tibble: 2 × 2
+#>   xlinkClass   target_URPs
+#>   <chr>              <int>
+#> 1 interProtein         140
+#> 2 intraProtein         368
 ```
 
-The Score.Diff classifier finds 5 crosslinked residue-pairs at 1% FDR
-compared to 1174 using the Touchstone scoring function.
+This analysis reports 140 interprotein and 368 intraprotein target URPs
+at the modeled 1% thresholds after polishing.
 
-The modulefile categorizes the 80 or so ribosomal proteins to either the
-large (60S) or small (40S) subunits and specified the mapping between
-the accession numbers and the pdb file. The `processModuleFile()`
-function reads the modulefile, downloads the referenced pdb files,
-measured euclidean distances (as well as samples random lys-lys
-distances) and assigns the modules.
+The final target-only table is obtained without storing another
+permanent copy inside the result object:
 
 ``` r
-touchstone_example("rRibo_modfile_uniprot.txt")
-#> [1] "/private/var/folders/jn/t8p7f7xx5qx8j0fc4rqc7j8r0000gn/T/RtmprUIuBJ/temp_libpath24ae44a58163/touchstone/extdata/rRibo_modfile_uniprot.txt"
-
-ribo.urp <- processModuleFile(ribo.urp, touchstone_example("rRibo_modfile_uniprot.txt"))
-#> Warning in bio3d::read.cif(pdbCode, verbose = F): beta version of `read.cif`.
-#> please use with caution
-#> Warning in bio3d::read.cif(pdbCode, verbose = F): helix/sheet records could not
-#> be parsed
-#>   Note: Accessing on-line CIF file
-ribo.urp %>% 
-  classifyDataset(ribo.urp.1) %>%
-  distancePlot2(threshold = 35)
+ribo_targets <- removeDecoys(ribo_report$data)
+ribo_targets[1:5, c(
+  "xlinkedResPair", "xlinkClass", "SVM.score", "numCSM"
+)]
+#> # A tibble: 5 × 4
+#>   xlinkedResPair           xlinkClass   SVM.score numCSM
+#>   <fct>                    <chr>            <dbl>  <int>
+#> 1 0.A0A5F9D2E6::139.B7NZS8 interProtein    1.67        3
+#> 2 0.G1SGX4::105.G1SGX4     intraProtein    1.11        3
+#> 3 0.G1SGX4::90.G1SGX4      intraProtein    0.323       2
+#> 4 0.G1SGX4::98.G1SGX4      intraProtein    2.03        4
+#> 5 0.G1SKF7::10.G1SKF7      intraProtein   -0.0520      1
 ```
 
-<img src="man/figures/README-module_load-1.png" alt="" width="100%" />
+More stringent policies can be requested explicitly. For example:
 
 ``` r
-
-ribo.urp %>% 
-  moduleTilePlot(threshold = ribo.urp.1)
-```
-
-<img src="man/figures/README-module_load-2.png" alt="" width="100%" />
-\# \# ribo.ppi %\>% \# classifyDataset(ribo.ppi.1) %\>% \#
-ggplot(aes(wtCSM)) + \# geom_histogram(color=“white”) + \#
-facet_grid(rows = vars(Decoy2), scales=“free_y”) \# \# ribo.csm %\>% \#
-classifyDataset(ribo.ppi.1) %\>% \# calculatePairs() %\>% \#
-bestProtPair() %\>% \# ggplot(aes(wtCSM)) + \#
-geom_histogram(color=“white”) + \# facet_grid(rows = vars(Decoy2),
-scales=“free_y”)
-
-Let’s say you wanted to look at unique residue pairs within each SEC
-fraction. You would need to group the original data by SEC fraction and
-then calculated residue pairs on the grouped data. By nesting the data
-frame you can systematically calculate the 1% FDR score thresholds for
-each fraction and then make a dataframe with the classified data. An
-example of how one might do this is shown below.
-
-``` r
-ribo.urp_by_sec <- ribo.csm %>%
-  group_by(sec_fraction) %>%
-  bestResPair(retainGroups = T) %>%
-  nest() %>%
-  mutate(
-    thresh.1 = map(data, function(x) findSeparateThresholdsModelled(x)),
-    classified.urp = map2(data, thresh.1, function(x, y) {classifyDataset(x, y) %>% deScaler()})
+ribo_stringent <- classifyCrosslinkResults(
+  ribo_urp,
+  polishing = list(
+    minIons = 4,
+    minPepLen = 5,
+    minLadderCoverage = 0.25
   )
+)
 ```
 
-<img src="man/figures/README-grouping-1.png" alt="" width="100%" /><img src="man/figures/README-grouping-2.png" alt="" width="100%" /><img src="man/figures/README-grouping-3.png" alt="" width="100%" /><img src="man/figures/README-grouping-4.png" alt="" width="100%" />
+If product-ion annotations are absent, `fallbackMinScoreDiff` can be
+supplied alongside `minIons`; Touchstone records whether the ion rule,
+fallback, or neither was applied.
+
+### 6. Change the reporting level
+
+The SVM is not retrained for each reporting level. The same scored CSM
+table can be prepared and classified as peptide pairs or protein pairs:
 
 ``` r
+ribo_peptide_pairs <- prepareCrosslinkResults(
+  ribo_training,
+  summarizationLevel = "peptide-pair"
+) |>
+  classifyCrosslinkResults()
 
-sec_plot <- ribo.urp_by_sec %>%
-  select(sec_fraction, classified.urp) %>%
-  unnest(cols = classified.urp) %>%
-  ggplot(aes(x=sec_fraction, fill=Decoy)) +
-  geom_bar(position=position_dodge2(preserve = "single")) +
-    scale_fill_viridis_d(option = "C") +
-  theme_bw()
-
-print(sec_plot)
+ribo_protein_pairs <- prepareCrosslinkResults(
+  ribo_training,
+  summarizationLevel = "protein-pair"
+) |>
+  classifyCrosslinkResults()
 ```
 
-<img src="man/figures/README-grouping-5.png" alt="" width="100%" />
+This separation is important: the CSM score is shared, but the FDR
+threshold and supporting-evidence counts belong to the requested
+reporting level.
 
-You’ll still need to render `README.Rmd` regularly, to keep `README.md`
-up-to-date. `devtools::build_readme()` is handy for this.
+### 7. Optional structural annotation and export
 
-In that case, don’t forget to commit and push the resulting figure
-files, so they display on GitHub and CRAN.
+The bundled module file maps ribosomal proteins to the 40S and 60S
+subunits and to the rabbit 80S structure [PDB
+6HCJ](https://www.rcsb.org/structure/6HCJ). Structural annotation may
+download coordinate files, so it is not executed while building this
+README:
 
-## References:
+``` r
+ribo_structural <- processModuleFile(
+  ribo_report$data,
+  touchstone_example("rRibo_modfile_uniprot.txt")
+)
+
+distancePlot2(
+  removeDecoys(ribo_structural),
+  threshold = 35
+)
+```
+
+Results can be formatted for downstream inspection, including MS-Viewer:
+
+``` r
+msviewer_table <- formatXLTable(ribo_targets, msviewer = TRUE)
+readr::write_tsv(msviewer_table, "ribosome_urp_msviewer.txt")
+```
+
+MS-Viewer additionally requires the corresponding peak list; for large
+raw files, a filtered peak list containing only reported spectra is
+usually more practical.
+
+## Scope and development status
+
+The stabilized public path is currently binary-crosslink MS2 analysis
+from Protein Prospector Search Compare output. Experimental MS3
+reconstruction, ternary crosslinks, adapters for other search engines,
+and a secondary protein-pair evidence score remain on the project
+roadmap. In particular, the current `URPsupport` feature materially
+improves large-dataset URP recovery but should not be interpreted as a
+complete solution to protein-pair scoring.
+
+A demonstration graphical interface is available at
+[shinyapps.io](https://prospts.shinyapps.io/tstoneapp/), with additional
+[instructions](https://msf.ucsf.edu/mike/crosslinkingClass/dataset_summary.html).
+
+## References
 
 <div id="refs" class="references csl-bib-body hanging-indent"
 entry-spacing="0">
-
-<div id="ref-beveridge_synthetic_2020" class="csl-entry">
-
-Beveridge, Rebecca, Johannes Stadlmann, Josef M. Penninger, and Karl
-Mechtler. 2020. “A Synthetic Peptide Library for Benchmarking
-Crosslinking-Mass Spectrometry Search Engines for Proteins and Protein
-Complexes.” *Nature Communications* 11 (1): 742.
-<https://doi.org/10.1038/s41467-020-14608-2>.
-
-</div>
-
-<div id="ref-fischer_assessment_2025" class="csl-entry">
-
-Fischer, Lutz, Lars Kolbowski, Swantje Lenz, James E. Bruce, Robert J.
-Chalkley, Michael R. Hoopmann, David D. Shteynberg, et al. 2025.
-“Assessment of Reported Error Rates in Crosslinking Mass Spectrometry.”
-bioRxiv. <https://doi.org/10.1101/2025.04.27.649519>.
-
-</div>
 
 <div id="ref-kao_development_2011" class="csl-entry">
 
@@ -415,16 +366,6 @@ and Lan Huang. 2011. “Development of a Novel Cross-Linking Strategy for
 Fast and Accurate Identification of Cross-Linked Peptides of Protein
 Complexes \*.” *Molecular & Cellular Proteomics* 10 (1).
 <https://doi.org/10.1074/mcp.M110.002212>.
-
-</div>
-
-<div id="ref-matzinger_mimicked_2022" class="csl-entry">
-
-Matzinger, Manuel, Adrian Vasiu, Mathias Madalinski, Fränze Müller,
-Florian Stanek, and Karl Mechtler. 2022. “Mimicked Synthetic Ribosomal
-Protein Complex for Benchmarking Crosslinking Mass Spectrometry
-Workflows.” *Nature Communications* 13 (1): 3975.
-<https://doi.org/10.1038/s41467-022-31701-w>.
 
 </div>
 
