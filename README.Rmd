@@ -419,6 +419,11 @@ both this result table and the corresponding peak list. The recommended
 `tstoneMS2.4.json` Search Compare template creates the filtered peak-list file
 that serves as the spectral input to MS-Viewer.
 
+<img src="man/figures/README-msviewer-example.png" alt="Annotated DSSO crosslinked peptide spectrum displayed in MS-Viewer" width="100%" />
+
+MS-Viewer provides interactive inspection of the matched product ions for each
+reported crosslinked spectrum.
+
 [xiView](https://www.xiview.org/) and its xiNet network view use a smaller
 five-column crosslink table. The score column is inherited from a
 `touchstone_results` object or can be supplied explicitly:
