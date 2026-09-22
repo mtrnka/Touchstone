@@ -274,14 +274,35 @@ generateMSViewerLink.ms3 <- function(path, fraction, z, peptide, spectrum,
 
 #' Formats the crosslink results for exporting / viewing
 #'
-#' @param datTab Parsed CLMS search results.
+#' @param datTab Parsed CLMS search results or a `touchstone_results` object.
 #' @param msviewer Formats column names to be compatible with MS-Viewer
 #' @param extraCols Character vector of extra column names to be included in the report
+#' @param classifier Optional score column used to sort the exported table. When
+#'   omitted, the classifier stored in a `touchstone_results` object is used,
+#'   followed by `SVM.score` and then `Score.Diff` when available.
 #'
 #' @returns A data frame
 #' @export
 #'
-formatXLTable <- function(datTab, msviewer=F, extraCols=NULL) {
+formatXLTable <- function(datTab, msviewer=F, extraCols=NULL,
+                          classifier = NULL) {
+  classifier.supplied <- !missing(classifier) && !is.null(classifier)
+  classifier.name <- if (classifier.supplied) {
+    .classifierName(rlang::enquo(classifier))
+  } else {
+    NULL
+  }
+  stored.classifier <- NULL
+  if (inherits(datTab, "touchstone_results")) {
+    stored.classifier <- datTab$settings$classifier
+    datTab <- datTab$data
+  }
+  classifier.name <- .resolveAvailableClassifier(
+    datTab,
+    requested = classifier.name,
+    stored = stored.classifier,
+    caller = "formatXLTable"
+  )
   annoyingColumns <- stringr::str_which(names(datTab), "(Int|Dec)[a-z]{2}\\.[[1-2]]")
   if (length(annoyingColumns) > 0) {
     datTab <- datTab[, -annoyingColumns]
@@ -290,11 +311,13 @@ formatXLTable <- function(datTab, msviewer=F, extraCols=NULL) {
     select(-starts_with("Res"),
            -starts_with("Num\\."),
            -any_of("massError"))
-  if (sum(!is.na(datTab$distance)) == 0) {
+  if (!"distance" %in% names(datTab) || all(is.na(datTab$distance))) {
     datTab <- datTab %>%
       select(-any_of("distance"))
   }
-  if (sum(stringr::str_detect(names(datTab), "SVM.score")) > 0) datTab <- datTab[order(datTab$SVM.score, decreasing = T),]
+  if (!is.null(classifier.name)) {
+    datTab <- datTab[order(datTab[[classifier.name]], decreasing = TRUE),]
+  }
   columnsToReport <-c(
     "keep", "specMS2", "specMS3.1", "specMS3.2", "Decoy", "groundTruth",
     "xlinkedResPair", "xlinkedProtPair", "xlinkedModulPair",
@@ -307,7 +330,11 @@ formatXLTable <- function(datTab, msviewer=F, extraCols=NULL) {
     "Peptide.1", "Peptide.2", "numCSM", "numURP",
     "Fraction", "RT", "MSMS.Info", "Instrument", "id", "experiment", "Manual.Inspection"
   )
+  if (!is.null(classifier.name)) {
+    columnsToReport <- c(columnsToReport, classifier.name)
+  }
   if (!is.null(extraCols)) columnsToReport <- c(columnsToReport, extraCols)
+  columnsToReport <- unique(columnsToReport)
   datTab <- datTab %>% select(any_of(columnsToReport))
   if ("Protein.1" %in% names(datTab) & "Protein.2" %in% names(datTab)) {
     datTab <- datTab %>%
@@ -376,6 +403,30 @@ formatXLTable <- function(datTab, msviewer=F, extraCols=NULL) {
   datTab <- datTab %>%
     mutate(xlinkedResPair = forcats::fct_drop(.data$xlinkedResPair))
   return(datTab)
+}
+
+.resolveAvailableClassifier <- function(datTab,
+                                        requested = NULL,
+                                        stored = NULL,
+                                        caller = "This function") {
+  if (!is.data.frame(datTab)) {
+    stop(caller, " requires a data frame or touchstone_results object.",
+         call. = FALSE)
+  }
+  if (!is.null(requested)) {
+    if (!requested %in% names(datTab)) {
+      stop(
+        caller, " data have no classifier column named '", requested, "'.",
+        call. = FALSE
+      )
+    }
+    return(requested)
+  }
+  candidates <- unique(c(stored, "SVM.score", "Score.Diff"))
+  candidates <- candidates[!is.na(candidates) & nzchar(candidates)]
+  available <- candidates[candidates %in% names(datTab)]
+  if (length(available) == 0) return(NULL)
+  available[[1]]
 }
 
 #' Rescales data to plot and tabulate estimate decoy hits
@@ -910,15 +961,44 @@ clearAboveDiag <- function(sqMatrix) {
 #' see Combe et al, MCP 2015.
 # 'https://doi.org/10.1074/mcp.O114.042259
 #'
-#' @param datTab Parsed CLMS search results.
+#' @param datTab Parsed CLMS search results or a `touchstone_results` object.
 #' @param flavor Output column naming convention: `"xiNet"` or `"xiView"`.
+#' @param classifier Score column exported as `Score`. When omitted, the
+#'   classifier stored in a `touchstone_results` object is used, followed by
+#'   `SVM.score` and then `Score.Diff` when available.
 #'
 #' @returns A data frame
 #' @export
 #'
-makeXiNetFile <- function(datTab, flavor = "xiNet") {
+makeXiNetFile <- function(datTab, flavor = "xiNet", classifier = NULL) {
+  classifier.supplied <- !missing(classifier) && !is.null(classifier)
+  classifier.name <- if (classifier.supplied) {
+    .classifierName(rlang::enquo(classifier))
+  } else {
+    NULL
+  }
+  stored.classifier <- NULL
+  if (inherits(datTab, "touchstone_results")) {
+    stored.classifier <- datTab$settings$classifier
+    datTab <- datTab$data
+  }
+  classifier.name <- .resolveAvailableClassifier(
+    datTab,
+    requested = classifier.name,
+    stored = stored.classifier,
+    caller = "makeXiNetFile"
+  )
+  if (is.null(classifier.name)) {
+    stop(
+      "makeXiNetFile data must contain SVM.score, Score.Diff, or a supplied classifier.",
+      call. = FALSE
+    )
+  }
   datTab <- datTab %>%
-    select(.data$SVM.score, .data$Acc.1, .data$Acc.2, .data$XLink.AA.1, .data$XLink.AA.2)
+    select(
+      dplyr::all_of(classifier.name),
+      "Acc.1", "Acc.2", "XLink.AA.1", "XLink.AA.2"
+    )
   if (flavor == "xiNet") {
     names(datTab) <- c("Score", "Protein1", "Protein2", "LinkPos1", "LinkPos2")
   } else if (flavor == "xiView") {

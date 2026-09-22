@@ -4,14 +4,18 @@
 \alias{formatXLTable}
 \title{Formats the crosslink results for exporting / viewing}
 \usage{
-formatXLTable(datTab, msviewer = F, extraCols = NULL)
+formatXLTable(datTab, msviewer = F, extraCols = NULL, classifier = NULL)
 }
 \arguments{
-\item{datTab}{Parsed CLMS search results.}
+\item{datTab}{Parsed CLMS search results or a \code{touchstone_results} object.}
 
 \item{msviewer}{Formats column names to be compatible with MS-Viewer}
 
 \item{extraCols}{Character vector of extra column names to be included in the report}
+
+\item{classifier}{Optional score column used to sort the exported table. When
+omitted, the classifier stored in a \code{touchstone_results} object is used,
+followed by \code{SVM.score} and then \code{Score.Diff} when available.}
 }
 \value{
 A data frame

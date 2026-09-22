@@ -5,12 +5,16 @@
 \title{Puts crosslink results into XiNet format for visualization.
 see Combe et al, MCP 2015.}
 \usage{
-makeXiNetFile(datTab, flavor = "xiNet")
+makeXiNetFile(datTab, flavor = "xiNet", classifier = NULL)
 }
 \arguments{
-\item{datTab}{Parsed CLMS search results.}
+\item{datTab}{Parsed CLMS search results or a \code{touchstone_results} object.}
 
 \item{flavor}{Output column naming convention: \code{"xiNet"} or \code{"xiView"}.}
+
+\item{classifier}{Score column exported as \code{Score}. When omitted, the
+classifier stored in a \code{touchstone_results} object is used, followed by
+\code{SVM.score} and then \code{Score.Diff} when available.}
 }
 \value{
 A data frame
