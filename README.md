@@ -2,6 +2,7 @@ Touchstone
 ================
 
 <!-- README.md is generated from README.Rmd. Please edit README.Rmd. -->
+<!-- Release example validated with touchstone 0.1.0. -->
 
 ## Crosslinking mass-spectrometry rescoring and reporting
 
@@ -175,11 +176,11 @@ ribo_training
 #> Features: Score.Diff, percMatched, massError, z, CSMsupport, xlinkClass, Perc.Bond.Cleavage.1, Perc.Bond.Cleavage.2.
 #> Recommended scores average 3 cross-fitted estimates.
 #> Selected Score.Diff prefilter: 0.
-#> # A tibble: 1 x 17
+#> # A tibble: 1 × 17
 #>   index kernel  cost gamma interHits intraHits achievedFDR interCorrelation intraCorrelation
 #>   <int> <chr>  <dbl> <dbl>     <dbl>     <dbl>       <dbl>            <dbl>            <dbl>
-#> 1     1 linear 0.001    NA       124       374      0.0105            0.573            0.601
-#> # i 8 more variables: interTailCorrelation <dbl>, intraTailCorrelation <dbl>,
+#> 1     1 linear 0.001    NA       139       374      0.0107            0.564            0.574
+#> # ℹ 8 more variables: interTailCorrelation <dbl>, intraTailCorrelation <dbl>,
 #> #   worstClassCorrelation <dbl>, minimumCorrelationRequired <dbl>, selectionBasis <chr>,
 #> #   eligible <lgl>, recommended <lgl>, recommendedRadial <lgl>
 #> Full candidate audit: $candidates
@@ -224,10 +225,10 @@ ribo_urp <- prepareCrosslinkResults(
 
 ribo_urp$thresholds
 #> $intraThresh
-#> [1] -0.08606
+#> [1] -0.092936
 #>
 #> $interThresh
-#> [1] 1.228
+#> [1] 1.186
 #>
 #> attr(,"thresholdMethods")
 #>     intraProtein     interProtein
@@ -268,32 +269,32 @@ product-ion cleavage positions when those annotations are available:
 ribo_report <- classifyCrosslinkResults(ribo_urp)
 
 ribo_report$polishingAudit
-#> # A tibble: 2 x 7
+#> # A tibble: 2 × 7
 #>   rule      value                                   before after removed applied reason
 #>   <chr>     <chr>                                    <int> <int>   <int> <lgl>   <chr>
 #> 1 minIons   3                                        58987 32576   26411 TRUE    <NA>
-#> 2 threshold intraThresh=-0.19288, interThresh=1.204  32576  3371   29205 TRUE    <NA>
+#> 2 threshold intraThresh=-0.18368, interThresh=1.168  32576  3347   29229 TRUE    <NA>
 
 ribo_classification_summary <- countDecoys(ribo_report)
 
 ribo_classification_summary
-#> # A tibble: 2 x 5
+#> # A tibble: 2 × 5
 #> # Groups:   xlinkClass, Decoy [2]
 #>   xlinkClass   Decoy Target DoubleDecoy   FDR
 #>   <chr>        <int>  <int>       <dbl> <dbl>
-#> 1 interProtein     2    140          NA  1.43
-#> 2 intraProtein     3    370          NA  0.81
+#> 1 interProtein     1    140          NA  0.71
+#> 2 intraProtein     4    368          NA  1.09
 ribo_report$fdrByClass
-#> # A tibble: 2 x 2
-#>   xlinkClass      FDR
-#>   <chr>         <dbl>
-#> 1 interProtein 0.0121
-#> 2 intraProtein 0.0101
+#> # A tibble: 2 × 2
+#>   xlinkClass       FDR
+#>   <chr>          <dbl>
+#> 1 interProtein 0.0107
+#> 2 intraProtein 0.00995
 ```
 
 `countDecoys()` provides the target and scaling-adjusted decoy count
 summary. The exact class-specific FDR calculation is retained in
-`fdrByClass`. This analysis reports 140 interprotein and 370
+`fdrByClass`. This analysis reports 140 interprotein and 368
 intraprotein target URPs at the modeled 1% thresholds after polishing.
 
 The final target-only table is obtained without storing another
@@ -305,14 +306,14 @@ ribo_table <- formatXLTable(ribo_targets)
 ribo_table[1:5, c(
   "xlinkedResPair", "xlinkClass", "SVM.score", "numCSM"
 )]
-#> # A tibble: 5 x 4
+#> # A tibble: 5 × 4
 #>   xlinkedResPair            xlinkClass   SVM.score numCSM
 #>   <fct>                     <fct>            <dbl>  <int>
-#> 1 113.G1T6D1::75.G1T6D1     intraProtein      4.01    120
-#> 2 119.G1TM55::46.G1TM55     intraProtein      3.88     74
-#> 3 38.G1TUB8::67.G1TUB8      intraProtein      3.7      84
-#> 4 42.G1SP51::78.G1SP51      intraProtein      3.53     11
-#> 5 139.B7NZS8::68.A0A5F9D2E6 interProtein      3.49     58
+#> 1 113.G1T6D1::75.G1T6D1     intraProtein      3.76    120
+#> 2 119.G1TM55::46.G1TM55     intraProtein      3.65     74
+#> 3 38.G1TUB8::67.G1TUB8      intraProtein      3.44     84
+#> 4 139.B7NZS8::68.A0A5F9D2E6 interProtein      3.36     58
+#> 5 42.G1SP51::78.G1SP51      intraProtein      3.33     11
 ```
 
 `formatXLTable()` removes most internal columns, arranges rows by the

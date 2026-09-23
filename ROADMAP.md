@@ -139,7 +139,7 @@ separate at every summarization level.
 - [x] Rewrite the GitHub README around the working ribosome example, with clear
   installation instructions, expected outputs, and links to more detailed
   documentation where appropriate.
-- [ ] Run the README example from a clean R session and fresh package install,
+- [x] Run the README example from a clean R session and fresh package install,
   run the complete package checks, then tag the stable public MS2 release.
 
 ## 3. Improve PPI scoring and reporting after the MS2 release

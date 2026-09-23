@@ -5,6 +5,7 @@ bibliography: tstone_readme.bib
 ---
 
 <!-- README.md is generated from README.Rmd. Please edit README.Rmd. -->
+<!-- Release example validated with touchstone 0.1.0. -->
 
 ```{r setup, include=FALSE}
 devtools::load_all(".", quiet = TRUE)
