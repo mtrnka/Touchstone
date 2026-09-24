@@ -127,6 +127,19 @@ calculateGroundTruthFDR <- function(datTab) {
   return(results)
 }
 
+.scaleDecoyEvidence <- function(targetDecoy, doubleDecoy, scalingFactor) {
+  if (length(scalingFactor) != 1 || !is.finite(scalingFactor) ||
+      scalingFactor <= 0) {
+    stop("scalingFactor must be one positive, finite value.", call. = FALSE)
+  }
+  ffTT <- doubleDecoy / (scalingFactor ** 2)
+  ftTT <- (targetDecoy / scalingFactor) - (2 * ffTT)
+  fallback <- is.finite(ftTT) & ftTT < 0
+  ffTT[fallback] <- 0.5 * targetDecoy[fallback] / scalingFactor
+  ftTT[fallback] <- 0
+  list(ftTT = ftTT, ffTT = ffTT)
+}
+
 #' Estimates fraction of TT hits with one or both peptides incorrectly identified.
 #'
 #' Internal function called by other functions in `fdr.R`
@@ -140,15 +153,13 @@ calculateDecoyFractions <- function(datTab, scalingFactor=the$decoyScalingFactor
   if (is.na(fdrTable["DoubleDecoy"])) {fdrTable["DoubleDecoy"] <- 0}
   if (is.na(fdrTable["Decoy"])) {fdrTable["Decoy"] <- 0}
   if (is.na(fdrTable["Target"])) {fdrTable["Target"] <- 0}
-  ffTT <- fdrTable[["DoubleDecoy"]] / (scalingFactor ** 2)
-  ftTT <- (fdrTable[["Decoy"]] / scalingFactor) -
-    (2 * fdrTable[["DoubleDecoy"]] / (scalingFactor ** 2))
+  scaled <- .scaleDecoyEvidence(
+    fdrTable[["Decoy"]],
+    fdrTable[["DoubleDecoy"]],
+    scalingFactor
+  )
   TT <- fdrTable[["Target"]]
-  if (ftTT < 0) {
-    ffTT <- 0.5 * fdrTable[["Decoy"]] / scalingFactor
-    ftTT <- 0
-  }
-  return(c("TT"=TT, "ftTT"=ftTT, "ffTT"=ffTT))
+  return(c("TT"=TT, "ftTT"=scaled$ftTT, "ffTT"=scaled$ffTT))
 }
 
 #' Model dependence of FDR on scoring function

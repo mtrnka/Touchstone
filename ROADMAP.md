@@ -153,10 +153,24 @@ separate at every summarization level.
   Stronger support reduced recovery, whereas omitting the feature greatly
   reduced CSM/URP recovery and did not clearly improve efficient PPI
   classification. Leave the CSM/URP feature unchanged.
-- [ ] Define a dedicated one-row-per-PPI results table plus an associated
-  evidence mapping that lists contributing URPs/CSMs without representing the
-  PPI solely through its best CSM. Defer complex protein-inference resolution;
-  retain transparent accession alternatives where feasible.
+- [ ] Define a dedicated PPI results object built from canonical flat tables,
+  rather than representing each PPI through its best CSM:
+  - a one-row-per-PPI summary containing pair identity, target/decoy and
+    entrapment status, supporting CSM/URP counts, score summaries,
+    `contextGroup`, context PEP, bootstrap stability, classification tier, and
+    threshold/FDR provenance;
+  - a keyed URP evidence table and a keyed CSM evidence table (or compact CSM
+    mapping) that preserve all evidence contributing to each PPI without
+    duplicating many classified/clean versions of the same data;
+  - settings, thresholds, FDR summaries, and protein-identity provenance so
+    classified and clean views can be generated on demand;
+  - explicit separation of `classificationTier` (`core-supported`,
+    `stably-enhanced`, or `unstably-enhanced`) from the biological/evidence
+    `contextGroup` used by the PPI model.
+  Defer complex protein-inference resolution, but retain transparent alternate
+  accession mappings where feasible and allow the future direct Prospector
+  decoy-accession column to replace the current identity reconstruction without
+  changing the reporting interface.
 - [ ] Prototype a transparent secondary PPI evidence score based on the best
   URP score, additional independently positioned URPs, their score-weighted
   support, and CSM evidence. Continue training the primary SVM at CSM level;
