@@ -180,6 +180,7 @@ annotatePPIContext <- function(datTab,
   )
   ppis <- dplyr::bind_cols(ppis, network) %>%
     dplyr::mutate(
+      coreSupported = .data[[classifier]] >= coreThreshold,
       bothCoreConnected = .data$coreDegreeA > 0 & .data$coreDegreeB > 0,
       networkEmbedded = .data$commonCoreNeighbors > 0,
       contextGroup = dplyr::case_when(

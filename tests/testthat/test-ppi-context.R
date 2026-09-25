@@ -33,6 +33,8 @@ test_that("PPI context annotation fuses protein identity but retains decoy origi
   expect_true(all(ab$distinctURPContext))
   expect_true(all(ab$fullyDistinctURPs >= 1))
   expect_true(all(ab$bothIntraSupported))
+  expect_true(ab$coreSupported[ab$Decoy == "Target"])
+  expect_false(ab$coreSupported[ab$Decoy == "Decoy"])
 })
 
 test_that("network context excludes the candidate edge itself", {
@@ -93,4 +95,102 @@ test_that("density-level decoy scaling matches Touchstone count scaling", {
   )
   expect_equal(five.x$ftTT, 18)
   expect_equal(five.x$ffTT, 1)
+})
+
+make_context_calibration_data <- function() {
+  groups <- c("distinct", "core-connected", "intra-supported", "context-poor")
+  purrr::map_dfr(groups, function(group) {
+    target.score <- seq(0.5, 4, length.out = 30)
+    decoy.score <- seq(-1, 1, length.out = 8)
+    double.score <- seq(-1, 0, length.out = 2)
+    score <- c(target.score, decoy.score, double.score)
+    tibble::tibble(
+      xlinkedProtPair = paste0(group, "-", seq_len(40)),
+      SVM.score = score,
+      Decoy = factor(
+        c(rep("Target", 30), rep("Decoy", 8), rep("DoubleDecoy", 2)),
+        levels = c("DoubleDecoy", "Decoy", "Target")
+      ),
+      xlinkClass = "interProtein",
+      contextGroup = group,
+      coreSupported = score >= 3
+    )
+  })
+}
+
+test_that("weighted context calibration is monotonic and keeps core PPIs", {
+  ppis <- make_context_calibration_data()
+  context <- structure(
+    list(
+      PPIs = ppis,
+      URPs = tibble::tibble(),
+      settings = list(
+        classifier = "SVM.score",
+        coreThreshold = 3,
+        candidateThreshold = -Inf,
+        supportThreshold = 0,
+        scalingFactor = 1
+      )
+    ),
+    class = "touchstone_ppi_context"
+  )
+  first <- classifyPPIContext(
+    context,
+    targetER = 0.05,
+    bootstrapReplicates = 5,
+    seed = 7
+  )
+  second <- classifyPPIContext(
+    context,
+    targetER = 0.05,
+    bootstrapReplicates = 5,
+    seed = 7
+  )
+
+  expect_s3_class(first, "touchstone_ppi_results")
+  expect_true(all(c(
+    "contextPEP", "contextQValue", "selectionFrequency",
+    "classificationTier", "classified"
+  ) %in% names(first$PPIs)))
+  expect_true(all(first$PPIs$classified[first$PPIs$coreSupported]))
+  expect_true(all(vapply(
+    first$model$curves,
+    function(curve) all(diff(curve$pep) <= sqrt(.Machine$double.eps)),
+    logical(1)
+  )))
+  expect_identical(
+    first$bootstrap$perPPI$selectionFrequency,
+    second$bootstrap$perPPI$selectionFrequency
+  )
+  expect_equal(first$settings$calibration, "weighted-isotonic-context-PEP")
+
+  set.seed(81)
+  expected.random <- stats::runif(1)
+  set.seed(81)
+  invisible(classifyPPIContext(
+    context,
+    targetER = 0.05,
+    bootstrapReplicates = 2,
+    seed = 7
+  ))
+  expect_equal(stats::runif(1), expected.random)
+})
+
+test_that("context q-values accept or reject complete PEP plateaus", {
+  pep <- c(rep(0.001, 10), rep(0.03, 100))
+  decoy.class <- rep("Target", length(pep))
+  q.value <- contextPEPQValues(pep, decoy.class)
+
+  expect_equal(contextPEPThreshold(pep, decoy.class, 0.02), 0.001)
+  expect_length(unique(q.value[pep == 0.03]), 1)
+  expect_gt(unique(q.value[pep == 0.03]), 0.02)
+})
+
+test_that("weighted decreasing PAVA pools local score reversals", {
+  fitted <- weightedDecreasingPAVA(
+    c(0.4, 0.3, 0.35, 0.1),
+    rep(1, 4)
+  )
+  expect_equal(fitted, c(0.4, 0.325, 0.325, 0.1))
+  expect_true(all(diff(fitted) <= 0))
 })

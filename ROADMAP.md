@@ -171,11 +171,17 @@ separate at every summarization level.
   accession mappings where feasible and allow the future direct Prospector
   decoy-accession column to replace the current identity reconstruction without
   changing the reporting interface.
-- [ ] Prototype a transparent secondary PPI evidence score based on the best
+- [x] Prototype a transparent secondary PPI evidence score based on the best
   URP score, additional independently positioned URPs, their score-weighted
   support, and CSM evidence. Continue training the primary SVM at CSM level;
   do not introduce separate SVMs for every summarization level without evidence
-  that the simpler secondary aggregation fails.
+  that the simpler secondary aggregation fails. The current experimental
+  implementation uses fused target-decoy protein identities, four transparent
+  evidence-context groups, decoy-scaled local posterior error estimates,
+  shrinkage toward the pooled curve, weighted monotonic calibration, tie-aware
+  context q-values, and bootstrap stability tiers. `contextPEP` is the primary
+  PPI-ranking metric; the CSM-trained SVM score remains the underlying evidence
+  axis and the conservative core classifier.
 - [ ] Validate any PPI score with decoys/entrapments, Kojak agreement,
   co-fractionation, and STRING. Treat co-fractionation and STRING strictly as
   held-out validation evidence rather than model features. Check portability on
