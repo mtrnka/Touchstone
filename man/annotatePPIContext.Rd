@@ -35,8 +35,10 @@ produces an experimental-calibration warning.}
 \item{retainGroups}{Retain existing groups during URP and PPI summarization.}
 }
 \value{
-A \code{touchstone_ppi_context} object containing annotated \code{PPIs},
-annotated \code{URPs}, and analysis settings.
+A \code{touchstone_ppi_context} object containing a compact annotated
+\code{PPIs} table, keyed \code{URPs} and \code{CSMs} evidence tables, and analysis
+settings. Protein accessions are the representative assignments reported
+by Prospector; protein inference is not assessed.
 }
 \description{
 Constructs target-decoy-symmetric protein identities from the reported

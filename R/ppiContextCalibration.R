@@ -31,10 +31,9 @@
 #' @param priorDecoys Number of decoys controlling shrinkage of each context
 #'   curve toward the pooled curve.
 #' @return A `touchstone_ppi_results` object. `PPIs` contains one row per PPI
-#'   candidate with context PEP, context q-value, bootstrap stability,
-#'   classification tier, and a `classified` flag. `URPs` retains the keyed URP
-#'   evidence from `context`; model, thresholds, FDR, and settings preserve
-#'   classification provenance.
+#'   candidate with context PEP, context q-value, bootstrap stability, and one
+#'   nonredundant classification tier. `URPs` and `CSMs` retain keyed evidence;
+#'   model, thresholds, FDR, and settings preserve classification provenance.
 #' @export
 classifyPPIContext <- function(context,
                                targetER = 0.02,
@@ -121,11 +120,24 @@ classifyPPIContext <- function(context,
     scoreColumn = context$settings$classifier,
     scalingFactor = context$settings$scalingFactor
   )
+  selected.ppis <- classification$PPIs %>%
+    dplyr::filter(.data$classified)
+  classification.summary <- countDecoys(
+    selected.ppis,
+    scalingFactor = context$settings$scalingFactor
+  )
+  reported.ppis <- classification$PPIs %>%
+    dplyr::select(-dplyr::any_of(c(
+      "coreSupported", "contextQualified", "contextSelected", "classified"
+    )))
+  target.fdr.reached <- is.finite(classification$fdr) &&
+    classification$fdr <= targetER
 
   structure(
     list(
-      PPIs = classification$PPIs,
+      PPIs = reported.ppis,
       URPs = context$URPs,
+      CSMs = context$CSMs,
       model = model,
       bootstrap = bootstrap,
       thresholds = list(
@@ -133,7 +145,12 @@ classifyPPIContext <- function(context,
         initialContextPEPThreshold = classification$initialThreshold,
         contextPEPThreshold = classification$threshold
       ),
-      fdr = classification$fdr,
+      fdr = list(
+        requested = targetER,
+        estimated = classification$fdr,
+        counts = classification.summary,
+        targetFDRReached = target.fdr.reached
+      ),
       settings = c(
         context$settings,
         list(
@@ -146,13 +163,131 @@ classifyPPIContext <- function(context,
           calibration = "weighted-isotonic-context-PEP",
           classification = "ordinary-or-context",
           contextTrimmed = classification$contextTrimmed,
-          targetFDRReached = is.finite(classification$fdr) &&
-            classification$fdr <= targetER
+          targetFDRReached = target.fdr.reached
         )
       )
     ),
     class = "touchstone_ppi_results"
   )
+}
+
+#' Retrieve protein pairs from contextual PPI results
+#'
+#' Returns a view of the single canonical PPI table without storing separate
+#' classified and target-only copies in the results object.
+#'
+#' @param x A `touchstone_ppi_results` object.
+#' @param view One of `"classified"`, `"clean"`, or `"all"`. The clean view
+#'   contains classified target PPIs only.
+#' @param tiers Optional classification tiers to retain.
+#' @return A data frame containing the requested PPI view.
+#' @export
+getPPIs <- function(x,
+                    view = c("classified", "clean", "all"),
+                    tiers = NULL) {
+  if (!inherits(x, "touchstone_ppi_results")) {
+    stop("x must be a touchstone_ppi_results object.", call. = FALSE)
+  }
+  view <- match.arg(view)
+  result <- x$PPIs
+  if (view != "all") {
+    result <- dplyr::filter(result, !is.na(.data$classificationTier))
+  }
+  if (view == "clean") {
+    result <- dplyr::filter(result, .data$Decoy == "Target")
+  }
+  if (!is.null(tiers)) {
+    allowed <- levels(x$PPIs$classificationTier)
+    unknown <- setdiff(tiers, allowed)
+    if (length(unknown) > 0) {
+      stop(
+        "Unknown classification tier(s): ",
+        paste(unknown, collapse = ", "), ".",
+        call. = FALSE
+      )
+    }
+    result <- dplyr::filter(
+      result, as.character(.data$classificationTier) %in% tiers
+    )
+  }
+  result
+}
+
+#' Retrieve the evidence supporting one protein pair
+#'
+#' @param x A `touchstone_ppi_results` object.
+#' @param ppiID Internal PPI identifier from `x$PPIs$ppiID`.
+#' @param proteinPair Alternatively, one reported `xlinkedProtPair` value.
+#' @return A list containing the one-row `PPI` summary and its keyed `URPs` and
+#'   `CSMs` evidence tables.
+#' @export
+getPPIEvidence <- function(x, ppiID = NULL, proteinPair = NULL) {
+  if (!inherits(x, "touchstone_ppi_results")) {
+    stop("x must be a touchstone_ppi_results object.", call. = FALSE)
+  }
+  supplied <- c(!is.null(ppiID), !is.null(proteinPair))
+  if (sum(supplied) != 1) {
+    stop("Supply exactly one of ppiID or proteinPair.", call. = FALSE)
+  }
+  if (!is.null(ppiID)) {
+    if (length(ppiID) != 1 || is.na(ppiID)) {
+      stop("ppiID must be one non-missing value.", call. = FALSE)
+    }
+    ppi <- dplyr::filter(x$PPIs, .data$ppiID == !!ppiID)
+  } else {
+    if (length(proteinPair) != 1 || is.na(proteinPair)) {
+      stop("proteinPair must be one non-missing value.", call. = FALSE)
+    }
+    ppi <- dplyr::filter(
+      x$PPIs, as.character(.data$xlinkedProtPair) == !!proteinPair
+    )
+  }
+  if (nrow(ppi) == 0) {
+    stop("No matching PPI was found.", call. = FALSE)
+  }
+  if (nrow(ppi) > 1) {
+    stop(
+      "proteinPair matched more than one PPI; select one by ppiID.",
+      call. = FALSE
+    )
+  }
+  selected.id <- ppi$ppiID[[1]]
+  urps <- if (is.null(x$URPs)) {
+    tibble::tibble()
+  } else {
+    dplyr::filter(x$URPs, .data$ppiID == selected.id)
+  }
+  csms <- if (is.null(x$CSMs)) {
+    tibble::tibble()
+  } else {
+    dplyr::filter(x$CSMs, .data$ppiID == selected.id)
+  }
+  list(PPI = ppi, URPs = urps, CSMs = csms)
+}
+
+#' Print contextual protein-pair results
+#'
+#' @param x A `touchstone_ppi_results` object.
+#' @param ... Unused.
+#' @return `x`, invisibly.
+#' @export
+print.touchstone_ppi_results <- function(x, ...) {
+  classified <- getPPIs(x, view = "classified")
+  clean <- getPPIs(x, view = "clean")
+  cat(
+    "Touchstone contextual PPI results: ", nrow(x$PPIs), " candidates; ",
+    nrow(classified), " classified rows; ", nrow(clean),
+    " classified target PPIs.\n",
+    sep = ""
+  )
+  cat(
+    "Requested FDR ", format(x$fdr$requested),
+    "; calculated target-decoy FDR ", format(x$fdr$estimated), ".\n",
+    sep = ""
+  )
+  cat("Classification tiers:\n")
+  print(table(classified$classificationTier, useNA = "no"))
+  invisible(x)
 }
 
 fitPPIContextPEP <- function(data,

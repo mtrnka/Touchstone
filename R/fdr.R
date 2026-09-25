@@ -19,9 +19,10 @@
 #' of decoy hits. Treats inter- and intra-protein hits separately. If the
 #' parameter `separateThresh` is provided it first thresholds the data.
 #'
-#' @param datTab Parsed CLMS search results, or a `touchstone_results` object
-#'   returned by [prepareCrosslinkResults()]. For a results object, its data,
-#'   thresholds, scaling factor, and classifier are used by default.
+#' @param datTab Parsed CLMS search results, a `touchstone_results` object
+#'   returned by [prepareCrosslinkResults()], or a `touchstone_ppi_results`
+#'   object returned by [classifyPPIContext()]. For a contextual PPI result,
+#'   omitting `threshold` returns its stored target-decoy FDR estimate.
 #' @param threshold A list or a numeric of length 1. List must contain either `globalThresh` or both `interThresh` and `intraThresh` numeric elements.
 #' @param classifier Column name in `datTab` used as the classifier to use to rank hits.
 #' @param scalingFactor An integer k. The multiple by which decoy DB is larger than target DB
@@ -33,6 +34,19 @@ calculateFDR <- function(datTab,
                          classifier="SVM.score",
                          scalingFactor=the$decoyScalingFactor) {
   classifier.missing <- missing(classifier)
+  if (inherits(datTab, "touchstone_ppi_results")) {
+    ppi.results <- datTab
+    if (missing(threshold)) {
+      return(ppi.results$fdr$estimated)
+    }
+    if (missing(scalingFactor)) {
+      scalingFactor <- ppi.results$settings$scalingFactor
+    }
+    if (classifier.missing) {
+      classifier <- ppi.results$settings$classifier
+    }
+    datTab <- ppi.results$PPIs
+  }
   if (inherits(datTab, "touchstone_results")) {
     prepared <- datTab
     if (missing(threshold)) {
@@ -705,9 +719,9 @@ generateErrorTable.sep <- function(datTab,
 
 #' Convenience function to display the confusion matrix.
 #'
-#' @param datTab Parsed CLMS search results, or a `touchstone_results` object
-#'   returned by [prepareCrosslinkResults()]. For a results object, its data,
-#'   thresholds, scaling factor, and classifier are used by default.
+#' @param datTab Parsed CLMS search results, a `touchstone_results` object, or a
+#'   `touchstone_ppi_results` object. For contextual PPI results, the default is
+#'   to count the classified PPI view.
 #' @param threshold A list or a numeric of length 1. List must contain either `globalThresh` or both `interThresh` and `intraThresh` numeric elements.
 #' @param ... passed down to `classifyDataset()`
 #' @param scalingFactor Multiple by which the decoy database is larger than the
@@ -723,6 +737,22 @@ countDecoys <- function(datTab,
   threshold.missing <- missing(threshold)
   scaling.missing <- missing(scalingFactor)
   classifier.args <- list(...)
+  if (inherits(datTab, "touchstone_ppi_results")) {
+    ppi.results <- datTab
+    if (scaling.missing) {
+      scalingFactor <- ppi.results$settings$scalingFactor
+    }
+    if (threshold.missing) {
+      datTab <- getPPIs(ppi.results, view = "classified")
+      threshold <- NULL
+    } else {
+      if (length(classifier.args) == 0 &&
+          !is.null(ppi.results$settings$classifier)) {
+        classifier.args$classifier <- ppi.results$settings$classifier
+      }
+      datTab <- ppi.results$PPIs
+    }
+  }
   if (inherits(datTab, "touchstone_results")) {
     prepared <- datTab
     if (threshold.missing) {

@@ -22,8 +22,10 @@
 #' @param scalingFactor Decoy database scaling factor. A value other than 1
 #'   produces an experimental-calibration warning.
 #' @param retainGroups Retain existing groups during URP and PPI summarization.
-#' @return A `touchstone_ppi_context` object containing annotated `PPIs`,
-#'   annotated `URPs`, and analysis settings.
+#' @return A `touchstone_ppi_context` object containing a compact annotated
+#'   `PPIs` table, keyed `URPs` and `CSMs` evidence tables, and analysis
+#'   settings. Protein accessions are the representative assignments reported
+#'   by Prospector; protein inference is not assessed.
 #' @export
 annotatePPIContext <- function(datTab,
                                coreThreshold,
@@ -72,13 +74,12 @@ annotatePPIContext <- function(datTab,
 
   fused <- addFusedContextIdentity(datTab)
   scored <- dplyr::bind_cols(datTab, fused)
+  group.columns <- dplyr::group_vars(scored)
   urps <- bestResPair(
     scored,
     classifier = !!rlang::sym(classifier),
     retainGroups = retainGroups
   )
-  candidate.urps <- urps %>%
-    dplyr::filter(.data[[classifier]] >= candidateThreshold)
   support.urps <- urps %>%
     dplyr::filter(.data[[classifier]] >= supportThreshold)
 
@@ -189,12 +190,112 @@ annotatePPIContext <- function(datTab,
         .data$bothIntraSupported ~ "intra-supported",
         TRUE ~ "context-poor"
       )
+    ) %>%
+    dplyr::ungroup() %>%
+    dplyr::arrange(
+      as.character(.data$xlinkedProtPair),
+      as.character(.data$Decoy),
+      dplyr::desc(.data[[classifier]])
+    ) %>%
+    dplyr::mutate(
+      ppiID = sprintf("PPI%06d", dplyr::row_number()),
+      proteinInferenceStatus = "not-assessed",
+      proteinAssignmentSource = "Prospector primary assignment"
     )
+
+  join.columns <- unique(c(group.columns, "xlinkedProtPair", "Decoy"))
+  join.columns <- join.columns[join.columns %in% names(ppis)]
+  ppi.keys <- ppis %>%
+    dplyr::select(dplyr::all_of(c(join.columns, "ppiID")))
+  if (anyDuplicated(ppi.keys[join.columns])) {
+    stop(
+      "PPI evidence keys are not unique. Re-run annotatePPIContext() with ",
+      "retainGroups = FALSE or retain grouping columns that uniquely define ",
+      "each protein pair.",
+      call. = FALSE
+    )
+  }
+
+  evidence.urps <- urps %>%
+    dplyr::ungroup() %>%
+    dplyr::inner_join(ppi.keys, by = join.columns) %>%
+    dplyr::mutate(
+      candidateURP = .data[[classifier]] >= candidateThreshold,
+      contextualSupportURP = .data[[classifier]] >= supportThreshold
+    ) %>%
+    dplyr::relocate("ppiID") %>%
+    droplevels()
+  evidence.csms <- scored %>%
+    dplyr::ungroup() %>%
+    dplyr::inner_join(ppi.keys, by = join.columns) %>%
+    dplyr::left_join(
+      evidence.urps %>%
+        dplyr::select(
+          dplyr::all_of(c(
+            join.columns, "xlinkedResPair", "candidateURP",
+            "contextualSupportURP"
+          ))
+        ) %>%
+        dplyr::distinct(),
+      by = c(join.columns, "xlinkedResPair")
+    ) %>%
+    dplyr::relocate("ppiID") %>%
+    droplevels()
+
+  urp.counts <- evidence.urps %>%
+    dplyr::group_by(.data$ppiID) %>%
+    dplyr::summarize(
+      numURPs = dplyr::n_distinct(.data$xlinkedResPair),
+      numCandidateURPs = dplyr::n_distinct(
+        .data$xlinkedResPair[.data$candidateURP]
+      ),
+      numContextualSupportURPs = dplyr::n_distinct(
+        .data$xlinkedResPair[.data$contextualSupportURP]
+      ),
+      .groups = "drop"
+    )
+  csm.counts <- evidence.csms %>%
+    dplyr::group_by(.data$ppiID) %>%
+    dplyr::summarize(
+      numCSMs = dplyr::n(),
+      .groups = "drop"
+    )
+  if ("Score.Diff" %in% names(evidence.csms)) {
+    score.diff.summary <- evidence.csms %>%
+      dplyr::group_by(.data$ppiID) %>%
+      dplyr::summarize(
+        maxScoreDiff = if (all(is.na(.data$Score.Diff))) {
+          NA_real_
+        } else {
+          max(.data$Score.Diff, na.rm = TRUE)
+        },
+        .groups = "drop"
+      )
+    csm.counts <- dplyr::left_join(
+      csm.counts, score.diff.summary, by = "ppiID"
+    )
+  }
+  ppis <- ppis %>%
+    dplyr::select(-dplyr::any_of(c("numCSM", "numURP"))) %>%
+    dplyr::left_join(urp.counts, by = "ppiID") %>%
+    dplyr::left_join(csm.counts, by = "ppiID") %>%
+    dplyr::mutate(
+      dplyr::across(
+        dplyr::all_of(c(
+          "numURPs", "numCandidateURPs", "numContextualSupportURPs",
+          "numCSMs"
+        )),
+        ~ dplyr::coalesce(.x, 0L)
+      )
+    ) %>%
+    compactPPIReportTable(classifier) %>%
+    droplevels()
 
   structure(
     list(
       PPIs = ppis,
-      URPs = candidate.urps,
+      URPs = evidence.urps,
+      CSMs = evidence.csms,
       settings = list(
         classifier = classifier,
         coreThreshold = coreThreshold,
@@ -202,6 +303,8 @@ annotatePPIContext <- function(datTab,
         supportThreshold = supportThreshold,
         scalingFactor = scalingFactor,
         identity = "species-and-protein-name",
+        proteinInferenceStatus = "not-assessed",
+        proteinAssignmentSource = "Prospector primary assignment",
         scaledContextCalibration = if (scalingFactor == 1) {
           "validated-prototype"
         } else {
@@ -211,6 +314,27 @@ annotatePPIContext <- function(datTab,
     ),
     class = "touchstone_ppi_context"
   )
+}
+
+compactPPIReportTable <- function(ppis, classifier) {
+  identity.columns <- c(
+    "ppiID", "xlinkedProtPair", "fusedProteinPair", "Acc.1", "Acc.2",
+    "Protein.1", "Protein.2", "Species.1", "Species.2", "xlinkClass",
+    "Decoy", "entrapment", "proteinInferenceStatus",
+    "proteinAssignmentSource"
+  )
+  evidence.columns <- c(
+    classifier, "maxScoreDiff", "numCSMs", "numURPs", "numCandidateURPs",
+    "numContextualSupportURPs", "distinctURPs", "fullyDistinctURPs",
+    "distinctURPContext", "intraURPsA", "intraURPsB", "intraMaxScoreA",
+    "intraMaxScoreB", "bothIntraSupported", "coreDegreeA", "coreDegreeB",
+    "commonCoreNeighbors", "bothCoreConnected", "networkEmbedded",
+    "contextGroup", "coreSupported"
+  )
+  ppis %>%
+    dplyr::select(dplyr::any_of(unique(c(
+      identity.columns, evidence.columns
+    ))))
 }
 
 addFusedContextIdentity <- function(datTab) {

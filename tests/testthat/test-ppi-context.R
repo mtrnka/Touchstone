@@ -35,6 +35,26 @@ test_that("PPI context annotation fuses protein identity but retains decoy origi
   expect_true(all(ab$bothIntraSupported))
   expect_true(ab$coreSupported[ab$Decoy == "Target"])
   expect_false(ab$coreSupported[ab$Decoy == "Decoy"])
+  expect_true(all(c("ppiID", "proteinInferenceStatus") %in%
+                    names(result$PPIs)))
+  expect_true(all(result$PPIs$proteinInferenceStatus == "not-assessed"))
+  expect_false("DB.Peptide.1" %in% names(result$PPIs))
+  expect_true(all(c("ppiID", "candidateURP", "contextualSupportURP") %in%
+                    names(result$URPs)))
+  expect_true(all(c("ppiID", "candidateURP", "contextualSupportURP") %in%
+                    names(result$CSMs)))
+  ppi.csm.counts <- result$CSMs %>%
+    dplyr::count(.data$ppiID, name = "expectedCSMs")
+  ppi.urp.counts <- result$URPs %>%
+    dplyr::count(.data$ppiID, name = "expectedURPs")
+  expect_equal(
+    dplyr::left_join(result$PPIs, ppi.csm.counts, by = "ppiID")$numCSMs,
+    dplyr::left_join(result$PPIs, ppi.csm.counts, by = "ppiID")$expectedCSMs
+  )
+  expect_equal(
+    dplyr::left_join(result$PPIs, ppi.urp.counts, by = "ppiID")$numURPs,
+    dplyr::left_join(result$PPIs, ppi.urp.counts, by = "ppiID")$expectedURPs
+  )
 })
 
 test_that("network context excludes the candidate edge itself", {
@@ -105,6 +125,7 @@ make_context_calibration_data <- function() {
     double.score <- seq(-1, 0, length.out = 2)
     score <- c(target.score, decoy.score, double.score)
     tibble::tibble(
+      ppiID = paste0(group, "-PPI", seq_len(40)),
       xlinkedProtPair = paste0(group, "-", seq_len(40)),
       SVM.score = score,
       Decoy = factor(
@@ -123,7 +144,14 @@ test_that("weighted context calibration is monotonic and keeps core PPIs", {
   context <- structure(
     list(
       PPIs = ppis,
-      URPs = tibble::tibble(),
+      URPs = tibble::tibble(
+        ppiID = ppis$ppiID,
+        xlinkedResPair = paste0("URP-", seq_len(nrow(ppis)))
+      ),
+      CSMs = tibble::tibble(
+        ppiID = ppis$ppiID,
+        Spectrum = paste0("scan-", seq_len(nrow(ppis)))
+      ),
       settings = list(
         classifier = "SVM.score",
         coreThreshold = 3,
@@ -150,9 +178,15 @@ test_that("weighted context calibration is monotonic and keeps core PPIs", {
   expect_s3_class(first, "touchstone_ppi_results")
   expect_true(all(c(
     "contextPEP", "contextQValue", "selectionFrequency",
-    "classificationTier", "classified"
+    "classificationTier"
   ) %in% names(first$PPIs)))
-  expect_true(all(first$PPIs$classified[first$PPIs$coreSupported]))
+  expect_false(any(c(
+    "coreSupported", "contextQualified", "contextSelected", "classified"
+  ) %in% names(first$PPIs)))
+  expect_true(all(
+    as.character(first$PPIs$classificationTier[ppis$coreSupported]) ==
+      "core-supported"
+  ))
   expect_true(all(vapply(
     first$model$curves,
     function(curve) all(diff(curve$pep) <= sqrt(.Machine$double.eps)),
@@ -163,6 +197,25 @@ test_that("weighted context calibration is monotonic and keeps core PPIs", {
     second$bootstrap$perPPI$selectionFrequency
   )
   expect_equal(first$settings$calibration, "weighted-isotonic-context-PEP")
+  expect_equal(first$fdr$requested, 0.05)
+  expect_true(is.numeric(first$fdr$estimated))
+  expect_equal(calculateFDR(first), first$fdr$estimated)
+  expect_equal(countDecoys(first), first$fdr$counts)
+
+  classified <- getPPIs(first, view = "classified")
+  clean <- getPPIs(first, view = "clean")
+  expect_true(all(!is.na(classified$classificationTier)))
+  expect_true(all(clean$Decoy == "Target"))
+  evidence <- getPPIEvidence(first, ppiID = first$PPIs$ppiID[[1]])
+  expect_equal(nrow(evidence$PPI), 1)
+  expect_equal(nrow(evidence$URPs), 1)
+  expect_equal(nrow(evidence$CSMs), 1)
+  pair.evidence <- getPPIEvidence(
+    first,
+    proteinPair = as.character(first$PPIs$xlinkedProtPair[[1]])
+  )
+  expect_equal(pair.evidence$PPI$ppiID, evidence$PPI$ppiID)
+  expect_output(print(first), "contextual PPI results")
 
   set.seed(81)
   expected.random <- stats::runif(1)

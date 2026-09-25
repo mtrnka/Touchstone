@@ -12,9 +12,10 @@ calculateFDR(
 )
 }
 \arguments{
-\item{datTab}{Parsed CLMS search results, or a \code{touchstone_results} object
-returned by \code{\link[=prepareCrosslinkResults]{prepareCrosslinkResults()}}. For a results object, its data,
-thresholds, scaling factor, and classifier are used by default.}
+\item{datTab}{Parsed CLMS search results, a \code{touchstone_results} object
+returned by \code{\link[=prepareCrosslinkResults]{prepareCrosslinkResults()}}, or a \code{touchstone_ppi_results}
+object returned by \code{\link[=classifyPPIContext]{classifyPPIContext()}}. For a contextual PPI result,
+omitting \code{threshold} returns its stored target-decoy FDR estimate.}
 
 \item{threshold}{A list or a numeric of length 1. List must contain either \code{globalThresh} or both \code{interThresh} and \code{intraThresh} numeric elements.}
 

@@ -35,10 +35,9 @@ curve toward the pooled curve.}
 }
 \value{
 A \code{touchstone_ppi_results} object. \code{PPIs} contains one row per PPI
-candidate with context PEP, context q-value, bootstrap stability,
-classification tier, and a \code{classified} flag. \code{URPs} retains the keyed URP
-evidence from \code{context}; model, thresholds, FDR, and settings preserve
-classification provenance.
+candidate with context PEP, context q-value, bootstrap stability, and one
+nonredundant classification tier. \code{URPs} and \code{CSMs} retain keyed evidence;
+model, thresholds, FDR, and settings preserve classification provenance.
 }
 \description{
 Estimates a local posterior error probability (\code{contextPEP}) separately for

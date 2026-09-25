@@ -153,7 +153,7 @@ separate at every summarization level.
   Stronger support reduced recovery, whereas omitting the feature greatly
   reduced CSM/URP recovery and did not clearly improve efficient PPI
   classification. Leave the CSM/URP feature unchanged.
-- [ ] Define a dedicated PPI results object built from canonical flat tables,
+- [x] Define a dedicated PPI results object built from canonical flat tables,
   rather than representing each PPI through its best CSM:
   - a one-row-per-PPI summary containing pair identity, target/decoy and
     entrapment status, supporting CSM/URP counts, score summaries,
@@ -167,10 +167,10 @@ separate at every summarization level.
   - explicit separation of `classificationTier` (`core-supported`,
     `stably-enhanced`, or `unstably-enhanced`) from the biological/evidence
     `contextGroup` used by the PPI model.
-  Defer complex protein-inference resolution, but retain transparent alternate
-  accession mappings where feasible and allow the future direct Prospector
-  decoy-accession column to replace the current identity reconstruction without
-  changing the reporting interface.
+  For the current workflow, retain Prospector's reported representative protein
+  pair and explicitly record that protein inference was not assessed. Allow the
+  future direct Prospector decoy-accession column to replace the current identity
+  reconstruction without changing the reporting interface.
 - [x] Prototype a transparent secondary PPI evidence score based on the best
   URP score, additional independently positioned URPs, their score-weighted
   support, and CSM evidence. Continue training the primary SVM at CSM level;
@@ -188,6 +188,14 @@ separate at every summarization level.
   at least one additional dataset before changing the public PPI workflow.
 - [ ] Revisit Bayesian integration and linear-peptide protein-ID priors only if
   the transparent aggregation score is inadequate.
+- [ ] Add explicit support for redundant CSM reports and ambiguous protein
+  assignments. Distinguish the physical spectrum, peptide-pair evidence, and
+  protein-pair assignment so that tied mappings of one spectrum are not counted
+  as independent CSM or URP support. When Prospector's option to report all tied
+  protein matches is used, retain the complete many-to-many mapping and allow
+  independent CSM/URP evidence to inform assignment without self-support.
+  Until this is implemented, preserve the Prospector-reported representative
+  pair and describe its protein-inference status as `not-assessed`, not unique.
 - [ ] Deprioritized side quest: investigate high-confidence Kojak spectra for
   which Prospector reports no corresponding annotation, separately from cases
   where both engines identify the crosslink but Touchstone places it below the
