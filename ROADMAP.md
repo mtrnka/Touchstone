@@ -157,16 +157,18 @@ separate at every summarization level.
   rather than representing each PPI through its best CSM:
   - a one-row-per-PPI summary containing pair identity, target/decoy and
     entrapment status, supporting CSM/URP counts, score summaries,
-    `contextGroup`, context PEP, bootstrap stability, classification tier, and
+    `contextGroup`, context PEP, bootstrap stability, classification status, and
     threshold/FDR provenance;
   - a keyed URP evidence table and a keyed CSM evidence table (or compact CSM
     mapping) that preserve all evidence contributing to each PPI without
     duplicating many classified/clean versions of the same data;
   - settings, thresholds, FDR summaries, and protein-identity provenance so
     classified and clean views can be generated on demand;
-  - explicit separation of `classificationTier` (`core-supported`,
-    `stably-enhanced`, or `unstably-enhanced`) from the biological/evidence
-    `contextGroup` used by the PPI model.
+  - a single `classificationStatus` annotation that distinguishes retained
+    ordinary-core calls, stable or unstable context-enhanced calls,
+    ordinary-core calls not selected after contextual re-evaluation, and other
+    unclassified candidates, while preserving `coreSupported` and
+    `contextSelected` as transparent Boolean provenance;
   For the current workflow, retain Prospector's reported representative protein
   pair and explicitly record that protein inference was not assessed. Allow the
   future direct Prospector decoy-accession column to replace the current identity
@@ -178,10 +180,23 @@ separate at every summarization level.
   that the simpler secondary aggregation fails. The current experimental
   implementation uses fused target-decoy protein identities, four transparent
   evidence-context groups, decoy-scaled local posterior error estimates,
-  shrinkage toward the pooled curve, weighted monotonic calibration, tie-aware
-  context q-values, and bootstrap stability tiers. `contextPEP` is the primary
-  PPI-ranking metric; the CSM-trained SVM score remains the underlying evidence
-  axis and the conservative core classifier.
+  shrinkage toward the pooled curve, weighted monotonic calibration, direct
+  tie-aware target-decoy q-values, and bootstrap stability annotations.
+  `contextPEP` is the primary PPI-ranking metric; the CSM-trained SVM score
+  remains the underlying evidence axis.
+- [x] Finalize the E. coli-calibrated contextual PPI procedure. Use the
+  intra-gated groups `Distinct URP + intra-supported`, `Core-connected +
+  intra-supported`, `Intra-supported`, and `No additional context`; distinct or
+  core-network evidence without intra-protein support does not inherit the
+  calibration of its intra-supported counterpart. Select the complete list by
+  direct cumulative target-decoy q-value rather than modeled mean PEP, and
+  allow contextual evidence to re-evaluate ordinary PPI calls while retaining
+  them in the complete audit table. Recommend 1x decoys for proteome-wide PPI
+  work; retain scaled-decoy support as experimental. On the 1x E. coli test,
+  this produced 729 normal target PPIs at 1.65% estimated FDR, with 636 selected
+  in at least 90% of bootstrap fits and 98.9% supported by co-fractionation.
+  The 5x stress test remained conservative and well behaved but offered no
+  practical advantage for proteome-wide analysis.
 - [ ] Validate any PPI score with decoys/entrapments, Kojak agreement,
   co-fractionation, and STRING. Treat co-fractionation and STRING strictly as
   held-out validation evidence rather than model features. Check portability on

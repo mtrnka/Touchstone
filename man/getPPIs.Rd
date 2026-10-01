@@ -12,7 +12,7 @@ getPPIs(x, view = c("classified", "clean", "all"), tiers = NULL)
 \item{view}{One of \code{"classified"}, \code{"clean"}, or \code{"all"}. The clean view
 contains classified target PPIs only.}
 
-\item{tiers}{Optional classification tiers to retain.}
+\item{tiers}{Optional classification-status labels to retain.}
 }
 \value{
 A data frame containing the requested PPI view.

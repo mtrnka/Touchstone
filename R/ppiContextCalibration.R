@@ -7,17 +7,15 @@
 #' the common-sense requirement that error probability cannot increase as the
 #' primary classifier improves.
 #'
-#' The reported `contextQValue` is the cumulative mean context PEP through all
-#' PPIs with equal or better context PEP. Complete tied plateaus are accepted or
-#' rejected together. The ordinary PPI classification defined by
-#' `coreThreshold` is retained; context classification can add candidates but
-#' never remove core-supported PPIs. If their union exceeds `targetER` by
-#' Touchstone's target-decoy FDR calculation, contextual additions are trimmed
-#' from least to most confident.
+#' The fitted `contextPEP` ranks PPIs, while direct cumulative target-decoy
+#' q-values determine the classification boundary. Complete tied context-PEP
+#' plateaus are accepted or rejected together, using Touchstone's target-decoy,
+#' double-decoy, and scaling-factor arithmetic. Ordinary PPI calls are not
+#' protected from re-evaluation, but remain annotated in the complete table.
 #'
 #' Bootstrap selection frequency is a stability annotation, not an additional
-#' error estimate. It separates contextual additions into `stably-enhanced`
-#' and `unstably-enhanced` reporting tiers.
+#' error estimate. It distinguishes stable and unstable context-enhanced calls
+#' in the reported classification status.
 #'
 #' @param context A `touchstone_ppi_context` object returned by
 #'   [annotatePPIContext()].
@@ -25,15 +23,16 @@
 #' @param bootstrapReplicates Number of stratified bootstrap fits. Use `0` to
 #'   omit stability estimation.
 #' @param seed Random seed used only for bootstrap resampling.
-#' @param stabilityThreshold Minimum bootstrap selection frequency for the
-#'   `stably-enhanced` tier.
+#' @param stabilityThreshold Minimum bootstrap selection frequency for a
+#'   `Stably context-enhanced` classification status.
 #' @param bandwidthAdjust Multiplier applied to the score-density bandwidth.
 #' @param priorDecoys Number of decoys controlling shrinkage of each context
 #'   curve toward the pooled curve.
 #' @return A `touchstone_ppi_results` object. `PPIs` contains one row per PPI
-#'   candidate with context PEP, context q-value, bootstrap stability, and one
-#'   nonredundant classification tier. `URPs` and `CSMs` retain keyed evidence;
-#'   model, thresholds, FDR, and settings preserve classification provenance.
+#'   candidate with context PEP, empirical FDR and q-value, bootstrap stability,
+#'   ordinary-core status, context-selection status, and one classification
+#'   label. `URPs` and `CSMs` retain keyed evidence; model, thresholds, FDR, and
+#'   settings preserve classification provenance.
 #' @export
 classifyPPIContext <- function(context,
                                targetER = 0.02,
@@ -121,15 +120,12 @@ classifyPPIContext <- function(context,
     scalingFactor = context$settings$scalingFactor
   )
   selected.ppis <- classification$PPIs %>%
-    dplyr::filter(.data$classified)
+    dplyr::filter(.data$contextSelected)
   classification.summary <- countDecoys(
     selected.ppis,
     scalingFactor = context$settings$scalingFactor
   )
-  reported.ppis <- classification$PPIs %>%
-    dplyr::select(-dplyr::any_of(c(
-      "coreSupported", "contextQualified", "contextSelected", "classified"
-    )))
+  reported.ppis <- classification$PPIs
   target.fdr.reached <- is.finite(classification$fdr) &&
     classification$fdr <= targetER
 
@@ -140,9 +136,9 @@ classifyPPIContext <- function(context,
       CSMs = context$CSMs,
       model = model,
       bootstrap = bootstrap,
+      targetDecoyCurve = classification$targetDecoyCurve,
       thresholds = list(
         coreThreshold = context$settings$coreThreshold,
-        initialContextPEPThreshold = classification$initialThreshold,
         contextPEPThreshold = classification$threshold
       ),
       fdr = list(
@@ -161,8 +157,8 @@ classifyPPIContext <- function(context,
           bandwidthAdjust = bandwidthAdjust,
           priorDecoys = priorDecoys,
           calibration = "weighted-isotonic-context-PEP",
-          classification = "ordinary-or-context",
-          contextTrimmed = classification$contextTrimmed,
+          classification = "direct-target-decoy-q-value",
+          protectedCore = FALSE,
           targetFDRReached = target.fdr.reached
         )
       )
@@ -179,7 +175,7 @@ classifyPPIContext <- function(context,
 #' @param x A `touchstone_ppi_results` object.
 #' @param view One of `"classified"`, `"clean"`, or `"all"`. The clean view
 #'   contains classified target PPIs only.
-#' @param tiers Optional classification tiers to retain.
+#' @param tiers Optional classification-status labels to retain.
 #' @return A data frame containing the requested PPI view.
 #' @export
 getPPIs <- function(x,
@@ -191,23 +187,23 @@ getPPIs <- function(x,
   view <- match.arg(view)
   result <- x$PPIs
   if (view != "all") {
-    result <- dplyr::filter(result, !is.na(.data$classificationTier))
+    result <- dplyr::filter(result, .data$contextSelected)
   }
   if (view == "clean") {
     result <- dplyr::filter(result, .data$Decoy == "Target")
   }
   if (!is.null(tiers)) {
-    allowed <- levels(x$PPIs$classificationTier)
+    allowed <- levels(x$PPIs$classificationStatus)
     unknown <- setdiff(tiers, allowed)
     if (length(unknown) > 0) {
       stop(
-        "Unknown classification tier(s): ",
+        "Unknown classification status label(s): ",
         paste(unknown, collapse = ", "), ".",
         call. = FALSE
       )
     }
     result <- dplyr::filter(
-      result, as.character(.data$classificationTier) %in% tiers
+      result, as.character(.data$classificationStatus) %in% tiers
     )
   }
   result
@@ -285,8 +281,8 @@ print.touchstone_ppi_results <- function(x, ...) {
     "; calculated target-decoy FDR ", format(x$fdr$estimated), ".\n",
     sep = ""
   )
-  cat("Classification tiers:\n")
-  print(table(classified$classificationTier, useNA = "no"))
+  cat("Classification status:\n")
+  print(table(classified$classificationStatus, useNA = "no"))
   invisible(x)
 }
 
@@ -431,28 +427,79 @@ weightedDecreasingPAVA <- function(values, weights) {
   pmin(pmax(fitted, 0), 1)
 }
 
-contextPEPQValues <- function(contextPEP, decoyClass) {
-  targetPEP <- sort(
-    contextPEP[decoyClass == "Target" & is.finite(contextPEP)]
+contextTargetDecoyCurve <- function(contextPEP,
+                                    decoyClass,
+                                    scalingFactor = 1) {
+  if (length(contextPEP) != length(decoyClass)) {
+    stop("contextPEP and decoyClass must have equal lengths.", call. = FALSE)
+  }
+  curve <- tibble::tibble(
+    contextPEP = contextPEP,
+    Decoy = as.character(decoyClass)
+  ) %>%
+    dplyr::filter(is.finite(.data$contextPEP)) %>%
+    dplyr::group_by(.data$contextPEP) %>%
+    dplyr::summarize(
+      targets = sum(.data$Decoy == "Target"),
+      targetDecoys = sum(.data$Decoy == "Decoy"),
+      doubleDecoys = sum(.data$Decoy == "DoubleDecoy"),
+      .groups = "drop"
+    ) %>%
+    dplyr::arrange(.data$contextPEP) %>%
+    dplyr::mutate(
+      targets = cumsum(.data$targets),
+      targetDecoys = cumsum(.data$targetDecoys),
+      doubleDecoys = cumsum(.data$doubleDecoys)
+    )
+  if (nrow(curve) == 0) {
+    curve$contextFDR <- curve$contextQValue <- numeric()
+    return(curve)
+  }
+  scaled <- .scaleDecoyEvidence(
+    curve$targetDecoys, curve$doubleDecoys, scalingFactor
   )
-  result <- rep(NA_real_, length(contextPEP))
-  if (length(targetPEP) == 0) return(result)
-
-  tied <- rle(targetPEP)
-  groupEnds <- cumsum(tied$lengths)
-  qValues <- cumsum(tied$values * tied$lengths) / groupEnds
-  finite <- is.finite(contextPEP)
-  positions <- findInterval(contextPEP[finite], tied$values)
-  positions <- pmin(pmax(positions, 1L), length(tied$values))
-  result[finite] <- qValues[positions]
-  result
+  false.targets <- scaled$ftTT + scaled$ffTT
+  curve$contextFDR <- ifelse(
+    curve$targets > 0, false.targets / curve$targets, Inf
+  )
+  curve$contextQValue <- rev(cummin(rev(curve$contextFDR)))
+  curve
 }
 
-contextPEPThreshold <- function(contextPEP, decoyClass, targetER) {
-  qValues <- contextPEPQValues(contextPEP, decoyClass)
-  eligible <- decoyClass == "Target" & is.finite(contextPEP) &
-    is.finite(qValues) & qValues <= targetER
-  if (!any(eligible)) -Inf else max(contextPEP[eligible])
+contextTargetDecoyValues <- function(contextPEP,
+                                     decoyClass,
+                                     scalingFactor = 1) {
+  curve <- contextTargetDecoyCurve(
+    contextPEP, decoyClass, scalingFactor = scalingFactor
+  )
+  fdr <- q.value <- rep(NA_real_, length(contextPEP))
+  finite <- is.finite(contextPEP)
+  if (nrow(curve) > 0 && any(finite)) {
+    index <- match(contextPEP[finite], curve$contextPEP)
+    fdr[finite] <- curve$contextFDR[index]
+    q.value[finite] <- curve$contextQValue[index]
+  }
+  list(fdr = fdr, qValue = q.value, curve = curve)
+}
+
+contextPEPQValues <- function(contextPEP,
+                              decoyClass,
+                              scalingFactor = 1) {
+  contextTargetDecoyValues(
+    contextPEP, decoyClass, scalingFactor = scalingFactor
+  )$qValue
+}
+
+contextPEPThreshold <- function(contextPEP,
+                                decoyClass,
+                                targetER,
+                                scalingFactor = 1) {
+  curve <- contextTargetDecoyCurve(
+    contextPEP, decoyClass, scalingFactor = scalingFactor
+  )
+  eligible <- is.finite(curve$contextQValue) &
+    curve$contextQValue <= targetER
+  if (!any(eligible)) -Inf else max(curve$contextPEP[eligible])
 }
 
 bootstrapPPIContextPEP <- function(data,
@@ -494,7 +541,8 @@ bootstrapPPIContextPEP <- function(data,
     )
     pep[, iteration] <- predictPPIContextPEP(model, data)
     thresholds[[iteration]] <- contextPEPThreshold(
-      pep[, iteration], data$Decoy, targetER
+      pep[, iteration], data$Decoy, targetER,
+      scalingFactor = scalingFactor
     )
     selected[, iteration] <- pep[, iteration] <= thresholds[[iteration]]
     targetCounts[[iteration]] <- sum(
@@ -528,16 +576,24 @@ classifyPPIContextTable <- function(data,
                                     stabilityThreshold,
                                     scoreColumn,
                                     scalingFactor) {
-  initialThreshold <- contextPEPThreshold(
-    data$contextPEP, data$Decoy, targetER
+  context.values <- contextTargetDecoyValues(
+    data$contextPEP,
+    data$Decoy,
+    scalingFactor = scalingFactor
   )
-  contextQValue <- contextPEPQValues(data$contextPEP, data$Decoy)
+  threshold <- contextPEPThreshold(
+    data$contextPEP,
+    data$Decoy,
+    targetER,
+    scalingFactor = scalingFactor
+  )
   selectionFrequency <- if (is.null(bootstrap)) {
     rep(NA_real_, nrow(data))
   } else {
     bootstrap$perPPI$selectionFrequency
   }
-  contextQualified <- is.finite(contextQValue) & contextQValue <= targetER
+  contextSelected <- is.finite(context.values$qValue) &
+    context.values$qValue <= targetER
   selectedFDR <- function(selected) {
     if (!any(data$Decoy[selected] == "Target")) return(Inf)
     as.numeric(calculateFDR(
@@ -547,62 +603,41 @@ classifyPPIContextTable <- function(data,
       scalingFactor = scalingFactor
     ))
   }
-
-  finalThreshold <- initialThreshold
-  classified <- data$coreSupported | contextQualified
-  combinedFDR <- selectedFDR(classified)
-  if (!is.finite(combinedFDR) || combinedFDR > targetER) {
-    acceptable <- FALSE
-    cutoffs <- c(sort(unique(data$contextPEP[
-      !data$coreSupported & contextQualified
-    ]), decreasing = TRUE), -Inf)
-    for (cutoff in cutoffs) {
-      trial <- data$coreSupported |
-        (!data$coreSupported & is.finite(data$contextPEP) &
-           data$contextPEP <= cutoff)
-      trialFDR <- selectedFDR(trial)
-      if (is.finite(trialFDR) && trialFDR <= targetER) {
-        finalThreshold <- cutoff
-        classified <- trial
-        combinedFDR <- trialFDR
-        acceptable <- TRUE
-        break
-      }
-    }
-    if (!acceptable) {
-      finalThreshold <- -Inf
-      classified <- data$coreSupported
-      combinedFDR <- selectedFDR(classified)
-    }
-  }
-
-  contextSelected <- !data$coreSupported & classified
-  classificationTier <- dplyr::case_when(
-    data$coreSupported ~ "core-supported",
-    contextSelected & !is.na(selectionFrequency) &
-      selectionFrequency >= stabilityThreshold ~ "stably-enhanced",
-    contextSelected ~ "unstably-enhanced",
-    TRUE ~ NA_character_
+  estimatedFDR <- selectedFDR(contextSelected)
+  classificationStatus <- dplyr::case_when(
+    data$coreSupported & contextSelected ~ "Ordinary core retained",
+    !data$coreSupported & contextSelected &
+      !is.na(selectionFrequency) &
+      selectionFrequency >= stabilityThreshold ~ "Stably context-enhanced",
+    !data$coreSupported & contextSelected &
+      !is.na(selectionFrequency) ~ "Unstably context-enhanced",
+    !data$coreSupported & contextSelected ~
+      "Context-enhanced (stability not estimated)",
+    data$coreSupported ~ "Ordinary core not context-selected",
+    TRUE ~ "Unclassified candidate"
   )
   annotated <- dplyr::mutate(
     data,
-    contextQValue = contextQValue,
-    contextQualified = contextQualified,
+    contextFDR = context.values$fdr,
+    contextQValue = context.values$qValue,
     contextSelected = contextSelected,
     selectionFrequency = selectionFrequency,
-    classificationTier = factor(
-      classificationTier,
+    classificationStatus = factor(
+      classificationStatus,
       levels = c(
-        "core-supported", "stably-enhanced", "unstably-enhanced"
+        "Ordinary core retained",
+        "Stably context-enhanced",
+        "Unstably context-enhanced",
+        "Context-enhanced (stability not estimated)",
+        "Ordinary core not context-selected",
+        "Unclassified candidate"
       )
-    ),
-    classified = classified
+    )
   )
   list(
     PPIs = annotated,
-    threshold = finalThreshold,
-    initialThreshold = initialThreshold,
-    fdr = combinedFDR,
-    contextTrimmed = finalThreshold < initialThreshold
+    threshold = threshold,
+    fdr = estimatedFDR,
+    targetDecoyCurve = context.values$curve
   )
 }

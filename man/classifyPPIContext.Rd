@@ -25,8 +25,8 @@ omit stability estimation.}
 
 \item{seed}{Random seed used only for bootstrap resampling.}
 
-\item{stabilityThreshold}{Minimum bootstrap selection frequency for the
-\code{stably-enhanced} tier.}
+\item{stabilityThreshold}{Minimum bootstrap selection frequency for a
+\verb{Stably context-enhanced} classification status.}
 
 \item{bandwidthAdjust}{Multiplier applied to the score-density bandwidth.}
 
@@ -35,9 +35,10 @@ curve toward the pooled curve.}
 }
 \value{
 A \code{touchstone_ppi_results} object. \code{PPIs} contains one row per PPI
-candidate with context PEP, context q-value, bootstrap stability, and one
-nonredundant classification tier. \code{URPs} and \code{CSMs} retain keyed evidence;
-model, thresholds, FDR, and settings preserve classification provenance.
+candidate with context PEP, empirical FDR and q-value, bootstrap stability,
+ordinary-core status, context-selection status, and one classification
+label. \code{URPs} and \code{CSMs} retain keyed evidence; model, thresholds, FDR, and
+settings preserve classification provenance.
 }
 \description{
 Estimates a local posterior error probability (\code{contextPEP}) separately for
@@ -48,15 +49,13 @@ the common-sense requirement that error probability cannot increase as the
 primary classifier improves.
 }
 \details{
-The reported \code{contextQValue} is the cumulative mean context PEP through all
-PPIs with equal or better context PEP. Complete tied plateaus are accepted or
-rejected together. The ordinary PPI classification defined by
-\code{coreThreshold} is retained; context classification can add candidates but
-never remove core-supported PPIs. If their union exceeds \code{targetER} by
-Touchstone's target-decoy FDR calculation, contextual additions are trimmed
-from least to most confident.
+The fitted \code{contextPEP} ranks PPIs, while direct cumulative target-decoy
+q-values determine the classification boundary. Complete tied context-PEP
+plateaus are accepted or rejected together, using Touchstone's target-decoy,
+double-decoy, and scaling-factor arithmetic. Ordinary PPI calls are not
+protected from re-evaluation, but remain annotated in the complete table.
 
 Bootstrap selection frequency is a stability annotation, not an additional
-error estimate. It separates contextual additions into \code{stably-enhanced}
-and \code{unstably-enhanced} reporting tiers.
+error estimate. It distinguishes stable and unstable context-enhanced calls
+in the reported classification status.
 }

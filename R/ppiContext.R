@@ -184,11 +184,10 @@ annotatePPIContext <- function(datTab,
       coreSupported = .data[[classifier]] >= coreThreshold,
       bothCoreConnected = .data$coreDegreeA > 0 & .data$coreDegreeB > 0,
       networkEmbedded = .data$commonCoreNeighbors > 0,
-      contextGroup = dplyr::case_when(
-        .data$distinctURPContext ~ "distinct",
-        .data$bothCoreConnected ~ "core-connected",
-        .data$bothIntraSupported ~ "intra-supported",
-        TRUE ~ "context-poor"
+      contextGroup = assignPPIContextGroup(
+        .data$distinctURPContext,
+        .data$bothCoreConnected,
+        .data$bothIntraSupported
       )
     ) %>%
     dplyr::ungroup() %>%
@@ -313,6 +312,29 @@ annotatePPIContext <- function(datTab,
       )
     ),
     class = "touchstone_ppi_context"
+  )
+}
+
+assignPPIContextGroup <- function(distinctURPContext,
+                                  bothCoreConnected,
+                                  bothIntraSupported) {
+  labels <- dplyr::case_when(
+    distinctURPContext & bothIntraSupported ~
+      "Distinct URP + intra-supported",
+    !distinctURPContext & bothCoreConnected & bothIntraSupported ~
+      "Core-connected + intra-supported",
+    !distinctURPContext & !bothCoreConnected & bothIntraSupported ~
+      "Intra-supported",
+    TRUE ~ "No additional context"
+  )
+  factor(
+    labels,
+    levels = c(
+      "Distinct URP + intra-supported",
+      "Core-connected + intra-supported",
+      "Intra-supported",
+      "No additional context"
+    )
   )
 }
 

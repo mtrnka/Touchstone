@@ -38,6 +38,8 @@ test_that("PPI context annotation fuses protein identity but retains decoy origi
   expect_true(all(c("ppiID", "proteinInferenceStatus") %in%
                     names(result$PPIs)))
   expect_true(all(result$PPIs$proteinInferenceStatus == "not-assessed"))
+  expect_true(all(as.character(ab$contextGroup) ==
+                    "Distinct URP + intra-supported"))
   expect_false("DB.Peptide.1" %in% names(result$PPIs))
   expect_true(all(c("ppiID", "candidateURP", "contextualSupportURP") %in%
                     names(result$URPs)))
@@ -87,8 +89,29 @@ test_that("candidate and contextual-support thresholds are independent", {
   expect_equal(result$settings$candidateThreshold, 0)
   expect_equal(result$settings$supportThreshold, 1.6)
   expect_true(all(result$PPIs$contextGroup %in% c(
-    "distinct", "core-connected", "intra-supported", "context-poor"
+    "Distinct URP + intra-supported",
+    "Core-connected + intra-supported",
+    "Intra-supported",
+    "No additional context"
   )))
+})
+
+test_that("PPI context groups preserve intra-support interactions", {
+  groups <- assignPPIContextGroup(
+    distinctURPContext = c(TRUE, TRUE, FALSE, FALSE, FALSE),
+    bothCoreConnected = c(TRUE, FALSE, TRUE, FALSE, TRUE),
+    bothIntraSupported = c(TRUE, TRUE, TRUE, TRUE, FALSE)
+  )
+  expect_identical(
+    as.character(groups),
+    c(
+      "Distinct URP + intra-supported",
+      "Distinct URP + intra-supported",
+      "Core-connected + intra-supported",
+      "Intra-supported",
+      "No additional context"
+    )
+  )
 })
 
 test_that("scaled PPI context is retained but marked experimental", {
@@ -101,6 +124,20 @@ test_that("scaled PPI context is retained but marked experimental", {
   )
   expect_equal(result$settings$scalingFactor, 5)
   expect_equal(result$settings$scaledContextCalibration, "experimental")
+})
+
+test_that("PPI context accepts an alternate classifier", {
+  data <- make_context_test_data() %>%
+    dplyr::mutate(Experimental.score = .data$SVM.score) %>%
+    dplyr::select(-"SVM.score")
+  result <- annotatePPIContext(
+    data,
+    coreThreshold = 1.3,
+    classifier = "Experimental.score",
+    scalingFactor = 1
+  )
+  expect_equal(result$settings$classifier, "Experimental.score")
+  expect_true("Experimental.score" %in% names(result$PPIs))
 })
 
 test_that("density-level decoy scaling matches Touchstone count scaling", {
@@ -117,8 +154,25 @@ test_that("density-level decoy scaling matches Touchstone count scaling", {
   expect_equal(five.x$ffTT, 1)
 })
 
+test_that("context target-decoy curves apply the decoy scaling factor", {
+  curve <- contextTargetDecoyCurve(
+    contextPEP = c(rep(0.01, 100), rep(0.02, 125)),
+    decoyClass = c(
+      rep("Target", 100), rep("Decoy", 100), rep("DoubleDecoy", 25)
+    ),
+    scalingFactor = 5
+  )
+  expect_equal(tail(curve$contextFDR, 1), 0.19)
+  expect_equal(curve$contextQValue[[1]], 0)
+})
+
 make_context_calibration_data <- function() {
-  groups <- c("distinct", "core-connected", "intra-supported", "context-poor")
+  groups <- c(
+    "Distinct URP + intra-supported",
+    "Core-connected + intra-supported",
+    "Intra-supported",
+    "No additional context"
+  )
   purrr::map_dfr(groups, function(group) {
     target.score <- seq(0.5, 4, length.out = 30)
     decoy.score <- seq(-1, 1, length.out = 8)
@@ -139,7 +193,7 @@ make_context_calibration_data <- function() {
   })
 }
 
-test_that("weighted context calibration is monotonic and keeps core PPIs", {
+test_that("weighted context calibration is monotonic and reproducible", {
   ppis <- make_context_calibration_data()
   context <- structure(
     list(
@@ -177,16 +231,16 @@ test_that("weighted context calibration is monotonic and keeps core PPIs", {
 
   expect_s3_class(first, "touchstone_ppi_results")
   expect_true(all(c(
-    "contextPEP", "contextQValue", "selectionFrequency",
-    "classificationTier"
+    "contextPEP", "contextFDR", "contextQValue", "selectionFrequency",
+    "coreSupported", "contextSelected", "classificationStatus"
   ) %in% names(first$PPIs)))
-  expect_false(any(c(
-    "coreSupported", "contextQualified", "contextSelected", "classified"
-  ) %in% names(first$PPIs)))
-  expect_true(all(
-    as.character(first$PPIs$classificationTier[ppis$coreSupported]) ==
-      "core-supported"
-  ))
+  expect_false(any(c("contextQualified", "classified") %in%
+                     names(first$PPIs)))
+  expect_identical(
+    first$PPIs$contextSelected,
+    is.finite(first$PPIs$contextQValue) &
+      first$PPIs$contextQValue <= first$fdr$requested
+  )
   expect_true(all(vapply(
     first$model$curves,
     function(curve) all(diff(curve$pep) <= sqrt(.Machine$double.eps)),
@@ -197,6 +251,9 @@ test_that("weighted context calibration is monotonic and keeps core PPIs", {
     second$bootstrap$perPPI$selectionFrequency
   )
   expect_equal(first$settings$calibration, "weighted-isotonic-context-PEP")
+  expect_equal(first$settings$classification,
+               "direct-target-decoy-q-value")
+  expect_false(first$settings$protectedCore)
   expect_equal(first$fdr$requested, 0.05)
   expect_true(is.numeric(first$fdr$estimated))
   expect_equal(calculateFDR(first), first$fdr$estimated)
@@ -204,7 +261,7 @@ test_that("weighted context calibration is monotonic and keeps core PPIs", {
 
   classified <- getPPIs(first, view = "classified")
   clean <- getPPIs(first, view = "clean")
-  expect_true(all(!is.na(classified$classificationTier)))
+  expect_true(all(classified$contextSelected))
   expect_true(all(clean$Decoy == "Target"))
   evidence <- getPPIEvidence(first, ppiID = first$PPIs$ppiID[[1]])
   expect_equal(nrow(evidence$PPI), 1)
@@ -229,14 +286,41 @@ test_that("weighted context calibration is monotonic and keeps core PPIs", {
   expect_equal(stats::runif(1), expected.random)
 })
 
-test_that("context q-values accept or reject complete PEP plateaus", {
-  pep <- c(rep(0.001, 10), rep(0.03, 100))
-  decoy.class <- rep("Target", length(pep))
+test_that("target-decoy q-values accept or reject complete PEP plateaus", {
+  pep <- c(rep(0.001, 10), rep(0.03, 103))
+  decoy.class <- c(rep("Target", 110), rep("Decoy", 3))
   q.value <- contextPEPQValues(pep, decoy.class)
 
   expect_equal(contextPEPThreshold(pep, decoy.class, 0.02), 0.001)
   expect_length(unique(q.value[pep == 0.03]), 1)
   expect_gt(unique(q.value[pep == 0.03]), 0.02)
+})
+
+test_that("direct context classification can re-evaluate an ordinary core", {
+  data <- tibble::tibble(
+    SVM.score = c(rep(2, 100), 1, rep(0, 3)),
+    contextPEP = c(rep(0.001, 100), rep(0.5, 4)),
+    Decoy = factor(
+      c(rep("Target", 101), rep("Decoy", 3)),
+      levels = c("DoubleDecoy", "Decoy", "Target")
+    ),
+    xlinkClass = "interProtein",
+    coreSupported = c(rep(FALSE, 100), TRUE, rep(FALSE, 3))
+  )
+  result <- classifyPPIContextTable(
+    data,
+    bootstrap = NULL,
+    targetER = 0.02,
+    stabilityThreshold = 0.9,
+    scoreColumn = "SVM.score",
+    scalingFactor = 1
+  )
+  expect_false(result$PPIs$contextSelected[[101]])
+  expect_equal(
+    as.character(result$PPIs$classificationStatus[[101]]),
+    "Ordinary core not context-selected"
+  )
+  expect_equal(result$threshold, 0.001)
 })
 
 test_that("weighted decreasing PAVA pools local score reversals", {
